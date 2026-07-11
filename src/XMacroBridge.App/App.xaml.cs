@@ -9,7 +9,7 @@ public partial class App : System.Windows.Application
 
     protected override void OnStartup(System.Windows.StartupEventArgs e)
     {
-        themeManager = new ThemeManager(this);
+        themeManager = new ThemeManager(this, ParseThemeMode(e.Args));
         themeManager.Start();
         base.OnStartup(e);
 
@@ -17,9 +17,7 @@ public partial class App : System.Windows.Application
         MainWindow = window;
         window.Show();
 
-        var startupPaths = e.Args
-            .Where(path => File.Exists(path) || Directory.Exists(path))
-            .ToArray();
+        var startupPaths = ReadStartupPaths(e.Args).ToArray();
         if (startupPaths.Length > 0)
         {
             window.ImportStartupPaths(startupPaths);
@@ -30,5 +28,43 @@ public partial class App : System.Windows.Application
     {
         themeManager?.Dispose();
         base.OnExit(e);
+    }
+
+    private static ThemeMode ParseThemeMode(IReadOnlyList<string> arguments)
+    {
+        for (var index = 0; index + 1 < arguments.Count; index++)
+        {
+            if (!string.Equals(arguments[index], "--theme-test", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            return arguments[index + 1].ToLowerInvariant() switch
+            {
+                "light" => ThemeMode.Light,
+                "dark" => ThemeMode.Dark,
+                "high-contrast" => ThemeMode.HighContrast,
+                _ => ThemeMode.System,
+            };
+        }
+
+        return ThemeMode.System;
+    }
+
+    private static IEnumerable<string> ReadStartupPaths(IReadOnlyList<string> arguments)
+    {
+        for (var index = 0; index < arguments.Count; index++)
+        {
+            if (string.Equals(arguments[index], "--theme-test", StringComparison.OrdinalIgnoreCase))
+            {
+                index++;
+                continue;
+            }
+
+            if (File.Exists(arguments[index]) || Directory.Exists(arguments[index]))
+            {
+                yield return arguments[index];
+            }
+        }
     }
 }

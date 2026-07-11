@@ -7,8 +7,10 @@
         <SolidColorBrush x:Key="TextPrimaryBrush" Color="#FF1D1D1F" />
         <SolidColorBrush x:Key="TextSecondaryBrush" Color="#FF6E6E73" />
         <SolidColorBrush x:Key="DividerBrush" Color="#FFE5E5EA" />
-        <SolidColorBrush x:Key="AccentBrush" Color="#FF007AFF" />
-        <SolidColorBrush x:Key="AccentHoverBrush" Color="#FF0066D6" />
+        <SolidColorBrush x:Key="AccentBrush" Color="#FF005FC7" />
+        <SolidColorBrush x:Key="AccentHoverBrush" Color="#FF004FA8" />
+        <SolidColorBrush x:Key="AccentFillBrush" Color="#FF005FC7" />
+        <SolidColorBrush x:Key="AccentFillTextBrush" Color="#FFFFFFFF" />
         <SolidColorBrush x:Key="SelectionBrush" Color="#FFEAF3FF" />
         <SolidColorBrush x:Key="ErrorBrush" Color="#FFD70015" />
         <SolidColorBrush x:Key="WarningBrush" Color="#FFB05A00" />
@@ -85,9 +87,9 @@
         </Style>
 
         <Style x:Key="PrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource BaseButtonStyle}">
-            <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
-            <Setter Property="Foreground" Value="White" />
-            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="Background" Value="{DynamicResource AccentFillBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AccentFillTextBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentFillBrush}" />
             <Setter Property="BorderThickness" Value="1" />
         </Style>
 

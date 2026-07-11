@@ -25,8 +25,12 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $dotnet run --project (Join-Path $projectRoot 'tests\XMacroBridge.Core.Tests\XMacroBridge.Core.Tests.csproj') -c $Configuration --no-build
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-& $dotnet run --project (Join-Path $projectRoot 'tests\XMacroBridge.App.SmokeTests\XMacroBridge.App.SmokeTests.csproj') -c $Configuration --no-build -- (Join-Path $projectRoot 'samples')
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$smokeTestProject = Join-Path $projectRoot 'tests\XMacroBridge.App.SmokeTests\XMacroBridge.App.SmokeTests.csproj'
+$sampleDirectory = Join-Path $projectRoot 'samples'
+foreach ($theme in @('light', 'dark', 'high-contrast')) {
+    & $dotnet run --project $smokeTestProject -c $Configuration --no-build -- --theme-test $theme $sampleDirectory
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
 
 $devLogDate = [datetime]'2099-01-01'
 $devLogPath = Join-Path $projectRoot 'devlogs\2099\2099-01-01.md'

@@ -9,11 +9,13 @@ internal sealed class ThemeManager : IDisposable
 {
     private const string PersonalizeRegistryPath = @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize";
     private readonly System.Windows.Application application;
+    private readonly ThemeMode mode;
     private bool disposed;
 
-    public ThemeManager(System.Windows.Application application)
+    public ThemeManager(System.Windows.Application application, ThemeMode mode = ThemeMode.System)
     {
         this.application = application ?? throw new ArgumentNullException(nameof(application));
+        this.mode = mode;
     }
 
     public void Start()
@@ -56,11 +58,17 @@ internal sealed class ThemeManager : IDisposable
 
     private void ApplyCurrentTheme()
     {
-        var palette = SystemParameters.HighContrast
-            ? CreateHighContrastPalette()
-            : IsDarkApplicationThemeEnabled()
-                ? CreateDarkPalette()
-                : CreateLightPalette();
+        var palette = mode switch
+        {
+            ThemeMode.Light => CreateLightPalette(),
+            ThemeMode.Dark => CreateDarkPalette(),
+            ThemeMode.HighContrast => CreateHighContrastPalette(),
+            _ => SystemParameters.HighContrast
+                ? CreateHighContrastPalette()
+                : IsDarkApplicationThemeEnabled()
+                    ? CreateDarkPalette()
+                    : CreateLightPalette(),
+        };
 
         SetBrush("PageBrush", palette.Page);
         SetBrush("CardBrush", palette.Card);
@@ -69,6 +77,8 @@ internal sealed class ThemeManager : IDisposable
         SetBrush("DividerBrush", palette.Divider);
         SetBrush("AccentBrush", palette.Accent);
         SetBrush("AccentHoverBrush", palette.AccentHover);
+        SetBrush("AccentFillBrush", palette.AccentFill);
+        SetBrush("AccentFillTextBrush", palette.AccentFillText);
         SetBrush("SelectionBrush", palette.Selection);
         SetBrush("ErrorBrush", palette.Error);
         SetBrush("WarningBrush", palette.Warning);
@@ -102,8 +112,10 @@ internal sealed class ThemeManager : IDisposable
         Parse("#FF1D1D1F"),
         Parse("#FF6E6E73"),
         Parse("#FFE5E5EA"),
-        Parse("#FF007AFF"),
-        Parse("#FF0066D6"),
+        Parse("#FF005FC7"),
+        Parse("#FF004FA8"),
+        Parse("#FF005FC7"),
+        Parse("#FFFFFFFF"),
         Parse("#FFEAF3FF"),
         Parse("#FFD70015"),
         Parse("#FFB05A00"),
@@ -120,10 +132,12 @@ internal sealed class ThemeManager : IDisposable
         Parse("#FFF5F5F7"),
         Parse("#FFAEAEB2"),
         Parse("#FF48484A"),
-        Parse("#FF0A84FF"),
-        Parse("#FF409CFF"),
+        Parse("#FF66B2FF"),
+        Parse("#FF8CC5FF"),
+        Parse("#FF0068D9"),
+        Parse("#FFFFFFFF"),
         Parse("#FF263C59"),
-        Parse("#FFFF453A"),
+        Parse("#FFFF6B61"),
         Parse("#FFFF9F0A"),
         Parse("#FF30D158"),
         Parse("#FF3A3A3C"),
@@ -136,10 +150,12 @@ internal sealed class ThemeManager : IDisposable
         SystemColors.WindowColor,
         SystemColors.WindowColor,
         SystemColors.WindowTextColor,
-        SystemColors.GrayTextColor,
         SystemColors.WindowTextColor,
-        SystemColors.HighlightColor,
-        SystemColors.HotTrackColor,
+        SystemColors.WindowTextColor,
+        SystemColors.WindowTextColor,
+        SystemColors.WindowTextColor,
+        SystemColors.WindowTextColor,
+        SystemColors.WindowColor,
         SystemColors.HighlightColor,
         SystemColors.WindowTextColor,
         SystemColors.WindowTextColor,
@@ -160,6 +176,8 @@ internal sealed class ThemeManager : IDisposable
         Color Divider,
         Color Accent,
         Color AccentHover,
+        Color AccentFill,
+        Color AccentFillText,
         Color Selection,
         Color Error,
         Color Warning,

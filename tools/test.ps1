@@ -25,6 +25,22 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $dotnet run --project (Join-Path $projectRoot 'tests\XMacroBridge.Core.Tests\XMacroBridge.Core.Tests.csproj') -c $Configuration --no-build
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+$appProject = Join-Path $projectRoot 'src\XMacroBridge.App\XMacroBridge.App.csproj'
+$publishDirectory = Join-Path ([IO.Path]::GetTempPath()) ('XMacroBridge-publish-' + [guid]::NewGuid().ToString('N'))
+try {
+    & $dotnet restore $appProject -r win-x64 --ignore-failed-sources
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+    & $dotnet publish $appProject -c $Configuration -r win-x64 --self-contained true --no-restore -o $publishDirectory
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+    & (Join-Path $projectRoot 'tools\release\Assert-AppManifest.ps1') `
+        -ExecutablePath (Join-Path $publishDirectory 'XMacroBridge.App.exe')
+}
+finally {
+    Remove-Item -LiteralPath $publishDirectory -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 $smokeTestProject = Join-Path $projectRoot 'tests\XMacroBridge.App.SmokeTests\XMacroBridge.App.SmokeTests.csproj'
 $smokeFixturePaths = @(
     (Join-Path $projectRoot 'samples\razer\basic-key-delay.xml'),

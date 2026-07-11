@@ -5,6 +5,7 @@ using XMacroBridge.Core.Conversion;
 using XMacroBridge.Core.Models;
 using XMacroBridge.Formats.Razer;
 using XMacroBridge.Formats.Xmbc;
+using XMacroBridge.Presentation.Workspace;
 using System.Text;
 
 var tests = new (string Name, Action Run)[]
@@ -47,6 +48,10 @@ var tests = new (string Name, Action Run)[]
     ("Safe export writes atomically and protects source", SafeExportWritesAtomicallyAndProtectsSource),
     ("Failed safe export cleans temporary files", FailedSafeExportCleansTemporaryFiles),
     ("Safe export rejects Windows reserved names", SafeExportRejectsWindowsReservedNames),
+    ("Workspace imports fixtures and refreshes event rows", WorkspaceImportsFixturesAndRefreshesEventRows),
+    ("Workspace expands nested macros before export", WorkspaceExpandsNestedMacrosBeforeExport),
+    ("Workspace exports both supported target formats", WorkspaceExportsBothSupportedTargetFormats),
+    ("Workspace blocks invalid selection and reports missing selection", WorkspaceBlocksInvalidAndMissingSelection),
 };
 
 var failures = new List<string>();
@@ -581,6 +586,131 @@ static void SafeExportRejectsWindowsReservedNames()
     {
         Directory.Delete(tempDirectory, true);
     }
+}
+
+static void WorkspaceImportsFixturesAndRefreshesEventRows()
+{
+    var tempDirectory = CreateFixtureDirectory();
+    try
+    {
+        var viewModel = WorkspaceViewModel.CreateDefault();
+        viewModel.ImportAsync([tempDirectory]).GetAwaiter().GetResult();
+
+        Assert(viewModel.Macros.Count == 8, "Workspace should expose all eight imported macros.");
+        Assert(viewModel.SelectedMacro is not null, "Workspace should select the first imported macro.");
+        var selected = viewModel.SelectedMacro ?? throw new InvalidOperationException("Workspace selection is missing.");
+        Assert(viewModel.Events.Count == selected.Events.Count, "Selected macro event rows are out of sync.");
+        Assert(viewModel.MacroCountText == "8 个宏", "Macro count summary is incorrect.");
+
+        var alternate = viewModel.Macros.First(item => !ReferenceEquals(item, viewModel.SelectedMacro));
+        viewModel.SelectedMacro = alternate;
+        Assert(viewModel.Events.Count == alternate.Events.Count, "Changing selection did not rebuild event rows.");
+    }
+    finally
+    {
+        Directory.Delete(tempDirectory, true);
+    }
+}
+
+static void WorkspaceExpandsNestedMacrosBeforeExport()
+{
+    var tempDirectory = CreateTemporaryDirectory();
+    try
+    {
+        var child = CreateNamedDocument(
+            "子宏",
+            new KeyMacroEvent(0, 65, InputTransition.Down),
+            new DelayMacroEvent(1, 20),
+            new KeyMacroEvent(2, 65, InputTransition.Up));
+        var root = CreateNamedDocument(
+            "父宏",
+            new MacroReferenceEvent(0, child.Id, null, child.Name));
+        var viewModel = WorkspaceViewModel.CreateDefault();
+        viewModel.Macros.Add(root);
+        viewModel.Macros.Add(child);
+        viewModel.SelectedMacro = root;
+        viewModel.TargetFormatId = "xmbc.macro.text";
+
+        var targetPath = Path.Combine(tempDirectory, "flattened.txt");
+        var result = viewModel.ExportAsync(targetPath).GetAwaiter().GetResult();
+        Assert(result.Succeeded, "Nested workspace export should succeed after expansion.");
+
+        using var stream = File.OpenRead(targetPath);
+        var imported = new XmbcMacroTextImporter().ImportAsync(stream, targetPath).GetAwaiter().GetResult();
+        Assert(imported.Documents.Single().Events.All(item => item is not MacroReferenceEvent), "Export still contains a macro reference.");
+        Assert(EventSignatures(imported.Documents.Single()).SequenceEqual(EventSignatures(child)), "Expanded events changed during export.");
+    }
+    finally
+    {
+        Directory.Delete(tempDirectory, true);
+    }
+}
+
+static void WorkspaceExportsBothSupportedTargetFormats()
+{
+    var tempDirectory = CreateTemporaryDirectory();
+    try
+    {
+        var document = CreateNamedDocument(
+            "双格式",
+            new KeyMacroEvent(0, 65, InputTransition.Down),
+            new DelayMacroEvent(1, 10),
+            new KeyMacroEvent(2, 65, InputTransition.Up));
+        var viewModel = WorkspaceViewModel.CreateDefault();
+        viewModel.Macros.Add(document);
+        viewModel.SelectedMacro = document;
+
+        var razerPath = Path.Combine(tempDirectory, "macro.xml");
+        var razerResult = viewModel.ExportAsync(razerPath).GetAwaiter().GetResult();
+        Assert(razerResult.Succeeded && File.Exists(razerPath), "Workspace Razer export failed.");
+
+        viewModel.TargetFormatId = "xmbc.macro.text";
+        var xmbcPath = Path.Combine(tempDirectory, "macro.txt");
+        var xmbcResult = viewModel.ExportAsync(xmbcPath).GetAwaiter().GetResult();
+        Assert(xmbcResult.Succeeded && File.Exists(xmbcPath), "Workspace XMBC export failed.");
+    }
+    finally
+    {
+        Directory.Delete(tempDirectory, true);
+    }
+}
+
+static void WorkspaceBlocksInvalidAndMissingSelection()
+{
+    var tempDirectory = CreateTemporaryDirectory();
+    try
+    {
+        var viewModel = WorkspaceViewModel.CreateDefault();
+        var noSelection = viewModel.ExportAsync(Path.Combine(tempDirectory, "none.xml")).GetAwaiter().GetResult();
+        Assert(!noSelection.Succeeded, "Export without a selection must fail.");
+        Assert(noSelection.Diagnostics.Any(item => item.Code == "WORKSPACE_NO_SELECTION"), "Missing-selection diagnostic is absent.");
+
+        var invalid = CreateDocument(new KeyMacroEvent(0, 65, InputTransition.Down));
+        viewModel.Macros.Add(invalid);
+        viewModel.SelectedMacro = invalid;
+        Assert(!viewModel.CanExport, "Invalid macro should disable export.");
+        Assert(viewModel.Diagnostics.Any(item => item.Code == "KEY_NOT_RELEASED"), "Disabled export should expose its blocking diagnostic.");
+
+        var blocked = viewModel.ExportAsync(Path.Combine(tempDirectory, "invalid.xml")).GetAwaiter().GetResult();
+        Assert(!blocked.Succeeded, "Invalid macro export must fail.");
+        Assert(blocked.Diagnostics.Any(item => item.Code == "KEY_NOT_RELEASED"), "Validation diagnostic is absent.");
+        Assert(!File.Exists(Path.Combine(tempDirectory, "invalid.xml")), "Blocked export created a file.");
+    }
+    finally
+    {
+        Directory.Delete(tempDirectory, true);
+    }
+}
+
+static string CreateFixtureDirectory()
+{
+    var directory = CreateTemporaryDirectory();
+    foreach (var name in new[] { "basic-key-delay.xml", "nested-macros.synapse4", "basic-key-delay.txt", "settings-action28.xml" })
+    {
+        File.Copy(Path.Combine(AppContext.BaseDirectory, "Fixtures", name), Path.Combine(directory, name));
+    }
+
+    return directory;
 }
 
 static string CreateTemporaryDirectory()

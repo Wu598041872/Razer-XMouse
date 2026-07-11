@@ -14,6 +14,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "XMacroBridge.Formats.Xmbc",
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "XMacroBridge.Application", "src\XMacroBridge.Application\XMacroBridge.Application.csproj", "{D6136C7B-2559-4685-B84C-E20AFC1773A3}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "XMacroBridge.Presentation", "src\XMacroBridge.Presentation\XMacroBridge.Presentation.csproj", "{951A21A6-634D-48B0-A813-3EEFDCE566C9}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -44,5 +46,9 @@ Global
 		{D6136C7B-2559-4685-B84C-E20AFC1773A3}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{D6136C7B-2559-4685-B84C-E20AFC1773A3}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{D6136C7B-2559-4685-B84C-E20AFC1773A3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{951A21A6-634D-48B0-A813-3EEFDCE566C9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{951A21A6-634D-48B0-A813-3EEFDCE566C9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{951A21A6-634D-48B0-A813-3EEFDCE566C9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{951A21A6-634D-48B0-A813-3EEFDCE566C9}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

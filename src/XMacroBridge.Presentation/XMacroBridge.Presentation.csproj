@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>XMacroBridge.Presentation</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\XMacroBridge.Application\XMacroBridge.Application.csproj" />
+    <ProjectReference Include="..\XMacroBridge.Core\XMacroBridge.Core.csproj" />
+  </ItemGroup>
+</Project>

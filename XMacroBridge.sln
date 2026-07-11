@@ -6,6 +6,12 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "XMacroBridge.Core", "src\XM
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "XMacroBridge.App", "src\XMacroBridge.App\XMacroBridge.App.csproj", "{AB014962-3684-4AD3-81BD-ED31E9E9DB29}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "XMacroBridge.Core.Tests", "tests\XMacroBridge.Core.Tests\XMacroBridge.Core.Tests.csproj", "{370DF2A3-BAD2-47C3-A648-802447A50936}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "XMacroBridge.Formats.Razer", "src\XMacroBridge.Formats.Razer\XMacroBridge.Formats.Razer.csproj", "{F256293B-419B-413F-A1AC-8A25EC1E2EE6}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "XMacroBridge.Formats.Xmbc", "src\XMacroBridge.Formats.Xmbc\XMacroBridge.Formats.Xmbc.csproj", "{A512889C-CAD7-4F8E-BAB3-F767D8A61655}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -20,5 +26,17 @@ Global
 		{AB014962-3684-4AD3-81BD-ED31E9E9DB29}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{AB014962-3684-4AD3-81BD-ED31E9E9DB29}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{AB014962-3684-4AD3-81BD-ED31E9E9DB29}.Release|Any CPU.Build.0 = Release|Any CPU
+		{370DF2A3-BAD2-47C3-A648-802447A50936}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{370DF2A3-BAD2-47C3-A648-802447A50936}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{370DF2A3-BAD2-47C3-A648-802447A50936}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{370DF2A3-BAD2-47C3-A648-802447A50936}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F256293B-419B-413F-A1AC-8A25EC1E2EE6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F256293B-419B-413F-A1AC-8A25EC1E2EE6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F256293B-419B-413F-A1AC-8A25EC1E2EE6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F256293B-419B-413F-A1AC-8A25EC1E2EE6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A512889C-CAD7-4F8E-BAB3-F767D8A61655}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A512889C-CAD7-4F8E-BAB3-F767D8A61655}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A512889C-CAD7-4F8E-BAB3-F767D8A61655}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A512889C-CAD7-4F8E-BAB3-F767D8A61655}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

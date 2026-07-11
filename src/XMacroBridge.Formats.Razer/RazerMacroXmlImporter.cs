@@ -1,0 +1,247 @@
+using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
+using System.Xml;
+using System.Xml.Linq;
+using XMacroBridge.Core.Abstractions;
+using XMacroBridge.Core.Conversion;
+using XMacroBridge.Core.Diagnostics;
+using XMacroBridge.Core.Models;
+
+namespace XMacroBridge.Formats.Razer;
+
+public sealed class RazerMacroXmlImporter : IMacroImporter
+{
+    private static readonly MacroLimits DefaultLimits = new();
+
+    public string FormatId => "razer.macro.xml";
+
+    public bool CanImport(ReadOnlySpan<byte> header, string? fileName)
+    {
+        if (!string.Equals(Path.GetExtension(fileName), ".xml", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var text = Encoding.UTF8.GetString(header);
+        return text.Contains("<Macro", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public async Task<MacroImportResult> ImportAsync(
+        Stream input,
+        string? sourceName,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+
+        var diagnostics = new List<ConversionDiagnostic>();
+        try
+        {
+            await using var buffer = new MemoryStream();
+            await CopyWithLimitAsync(input, buffer, DefaultLimits.MaximumFileBytes, cancellationToken).ConfigureAwait(false);
+            var bytes = buffer.ToArray();
+            var documentId = CreateDeterministicGuid(bytes);
+            buffer.Position = 0;
+
+            var settings = new XmlReaderSettings
+            {
+                Async = true,
+                DtdProcessing = DtdProcessing.Prohibit,
+                XmlResolver = null,
+                MaxCharactersInDocument = DefaultLimits.MaximumFileBytes,
+                IgnoreComments = true,
+                IgnoreWhitespace = true,
+            };
+
+            using var reader = XmlReader.Create(buffer, settings);
+            var xml = await XDocument.LoadAsync(reader, LoadOptions.SetLineInfo, cancellationToken).ConfigureAwait(false);
+            var root = xml.Root;
+            if (root is null || !string.Equals(root.Name.LocalName, "Macro", StringComparison.OrdinalIgnoreCase))
+            {
+                return Failure("RAZER_XML_ROOT", "文件根元素不是 <Macro>，无法作为雷云独立宏读取。", sourceName);
+            }
+
+            var name = GetChildValue(root, "Name");
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                name = Path.GetFileNameWithoutExtension(sourceName) ?? "未命名雷云宏";
+                diagnostics.Add(new ConversionDiagnostic(
+                    "RAZER_NAME_MISSING",
+                    DiagnosticSeverity.Warning,
+                    "宏缺少名称，已使用文件名或默认名称。"));
+            }
+
+            var events = ParseEvents(root, diagnostics);
+            var document = new MacroDocument(documentId, name, events, FormatId, sourceName);
+            return new MacroImportResult([document], diagnostics);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is XmlException or InvalidDataException or FormatException or OverflowException)
+        {
+            return Failure("RAZER_XML_INVALID", $"雷云 XML 无效：{exception.Message}", sourceName);
+        }
+    }
+
+    private static IReadOnlyList<MacroEvent> ParseEvents(
+        XElement root,
+        ICollection<ConversionDiagnostic> diagnostics)
+    {
+        var container = root.Elements().FirstOrDefault(element =>
+            string.Equals(element.Name.LocalName, "MacroEvents", StringComparison.OrdinalIgnoreCase));
+        if (container is null)
+        {
+            diagnostics.Add(new ConversionDiagnostic(
+                "RAZER_EVENTS_MISSING",
+                DiagnosticSeverity.Warning,
+                "宏不包含 <MacroEvents>，已作为空宏读取。"));
+            return [];
+        }
+
+        var result = new List<MacroEvent>();
+        long sequence = 0;
+        foreach (var element in container.Elements().Where(item =>
+                     string.Equals(item.Name.LocalName, "MacroEvent", StringComparison.OrdinalIgnoreCase)))
+        {
+            var type = GetChildValue(element, "Type");
+            switch (type)
+            {
+                case "actionBar":
+                    diagnostics.Add(new ConversionDiagnostic(
+                        "RAZER_EDITOR_METADATA_IGNORED",
+                        DiagnosticSeverity.Info,
+                        "已忽略雷云编辑器 actionBar 元数据。"));
+                    break;
+                case "0":
+                    result.Add(ParseDelay(element, sequence++));
+                    break;
+                case "1":
+                    result.Add(ParseKey(element, sequence++));
+                    break;
+                case "2":
+                    result.Add(ParseMouse(element, sequence++));
+                    break;
+                case "7":
+                    result.Add(ParseReference(element, sequence++));
+                    break;
+                default:
+                    result.Add(new UnknownMacroEvent(sequence++, type ?? "missing", element.ToString(SaveOptions.DisableFormatting)));
+                    diagnostics.Add(new ConversionDiagnostic(
+                        "RAZER_EVENT_UNKNOWN",
+                        DiagnosticSeverity.Error,
+                        $"无法识别雷云事件类型：{type ?? "缺失"}。",
+                        sequence - 1));
+                    break;
+            }
+        }
+
+        return result;
+    }
+
+    private static DelayMacroEvent ParseDelay(XElement element, long sequence)
+    {
+        var value = GetRequiredChildValue(element, "Number");
+        var seconds = decimal.Parse(value, NumberStyles.Float, CultureInfo.InvariantCulture);
+        var milliseconds = decimal.Round(seconds * 1000m, 0, MidpointRounding.AwayFromZero);
+        return new DelayMacroEvent(sequence, checked((long)milliseconds));
+    }
+
+    private static KeyMacroEvent ParseKey(XElement element, long sequence)
+    {
+        var keyEvent = GetRequiredChild(element, "KeyEvent");
+        var makeCode = int.Parse(GetRequiredChildValue(keyEvent, "Makecode"), CultureInfo.InvariantCulture);
+        var transition = ParseTransition(GetRequiredChildValue(keyEvent, "State"));
+        return new KeyMacroEvent(sequence, makeCode, transition);
+    }
+
+    private static MouseMacroEvent ParseMouse(XElement element, long sequence)
+    {
+        var mouseEvent = GetRequiredChild(element, "MouseEvent");
+        var buttonCode = int.Parse(GetRequiredChildValue(mouseEvent, "MouseButton"), CultureInfo.InvariantCulture);
+        var button = buttonCode switch
+        {
+            0 => MouseButton.Left,
+            1 => MouseButton.Right,
+            _ => throw new FormatException($"尚未确认雷云鼠标按钮代码 {buttonCode} 的含义。"),
+        };
+
+        var transition = ParseTransition(GetRequiredChildValue(mouseEvent, "State"));
+        return new MouseMacroEvent(sequence, button, transition);
+    }
+
+    private static MacroReferenceEvent ParseReference(XElement element, long sequence)
+    {
+        var guidText = GetChildValue(element, "guid");
+        Guid? guid = Guid.TryParse(guidText, out var parsedGuid) ? parsedGuid : null;
+        var indexText = GetChildValue(element, "MPIndex");
+        int? index = int.TryParse(indexText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedIndex)
+            ? parsedIndex
+            : null;
+
+        if (guid is null && index is null)
+        {
+            throw new FormatException("嵌套宏引用同时缺少有效的 guid 和 MPIndex。 ");
+        }
+
+        return new MacroReferenceEvent(sequence, guid, index);
+    }
+
+    private static InputTransition ParseTransition(string state) => state switch
+    {
+        "0" => InputTransition.Down,
+        "1" => InputTransition.Up,
+        _ => throw new FormatException($"未知的按键状态值：{state}。"),
+    };
+
+    private static string? GetChildValue(XElement parent, string localName) =>
+        parent.Elements().FirstOrDefault(element =>
+            string.Equals(element.Name.LocalName, localName, StringComparison.OrdinalIgnoreCase))?.Value;
+
+    private static string GetRequiredChildValue(XElement parent, string localName) =>
+        GetChildValue(parent, localName) ?? throw new FormatException($"事件缺少 <{localName}>。 ");
+
+    private static XElement GetRequiredChild(XElement parent, string localName) =>
+        parent.Elements().FirstOrDefault(element =>
+            string.Equals(element.Name.LocalName, localName, StringComparison.OrdinalIgnoreCase))
+        ?? throw new FormatException($"事件缺少 <{localName}>。 ");
+
+    private static async Task CopyWithLimitAsync(
+        Stream input,
+        Stream output,
+        long maximumBytes,
+        CancellationToken cancellationToken)
+    {
+        var buffer = new byte[81920];
+        long total = 0;
+        while (true)
+        {
+            var read = await input.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+            if (read == 0)
+            {
+                return;
+            }
+
+            total += read;
+            if (total > maximumBytes)
+            {
+                throw new InvalidDataException($"输入文件超过 {maximumBytes} 字节上限。 ");
+            }
+
+            await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private static Guid CreateDeterministicGuid(ReadOnlySpan<byte> bytes)
+    {
+        Span<byte> hash = stackalloc byte[32];
+        SHA256.HashData(bytes, hash);
+        return new Guid(hash[..16]);
+    }
+
+    private static MacroImportResult Failure(string code, string message, string? sourceName) =>
+        new(
+            [],
+            [new ConversionDiagnostic(code, DiagnosticSeverity.Error, message, SourceContext: sourceName)]);
+}

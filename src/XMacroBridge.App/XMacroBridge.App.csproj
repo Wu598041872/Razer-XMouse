@@ -4,6 +4,7 @@
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
     <RootNamespace>XMacroBridge.App</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon Condition="Exists('Assets\\XMacroBridge.ico')">Assets\XMacroBridge.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>

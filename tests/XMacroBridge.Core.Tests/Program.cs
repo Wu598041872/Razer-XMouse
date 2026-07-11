@@ -45,6 +45,9 @@ var tests = new (string Name, Action Run)[]
     ("XMBC scan codes round trip", XmbcScanCodesRoundTrip),
     ("XMBC commands are preserved and blocked for Razer", XmbcCommandsArePreservedAndBlockedForRazer),
     ("XMBC extended fixture round trips semantically", XmbcExtendedFixtureRoundTripsSemantically),
+    ("XMBC atomic mouse actions export all supported markers", XmbcAtomicMouseActionsExportAllSupportedMarkers),
+    ("XMBC rejects non-adjacent atomic wheel pairs", XmbcRejectsNonAdjacentAtomicWheelPairs),
+    ("XMBC rejects mismatched and isolated atomic mouse events", XmbcRejectsMalformedAtomicMouseEvents),
     ("Application import service handles fixture directory", ApplicationImportServiceHandlesFixtureDirectory),
     ("Application import service diagnoses unknown XML", ApplicationImportServiceDiagnosesUnknownXml),
     ("Safe export writes atomically and protects source", SafeExportWritesAtomicallyAndProtectsSource),
@@ -514,6 +517,52 @@ static void XmbcExtendedFixtureRoundTripsSemantically()
     output.Position = 0;
     var roundTrip = new XmbcMacroTextImporter().ImportAsync(output, "extended-roundtrip.txt").GetAwaiter().GetResult();
     Assert(EventSignatures(roundTrip.Documents.Single()).SequenceEqual(EventSignatures(document)), "Extended XMBC semantic round trip changed events.");
+}
+
+static void XmbcRejectsNonAdjacentAtomicWheelPairs()
+{
+    var document = CreateDocument(
+        new MouseMacroEvent(0, MouseButton.WheelUp, InputTransition.Down),
+        new DelayMacroEvent(1, 100),
+        new MouseMacroEvent(2, MouseButton.WheelUp, InputTransition.Up));
+    using var output = new MemoryStream();
+    var diagnostics = new XmbcMacroTextExporter().ExportAsync(document, output).GetAwaiter().GetResult();
+
+    Assert(diagnostics.Any(item => item.Code == "XMBC_EXPORT_ATOMIC_MOUSE_PAIR_REQUIRED"), "Non-adjacent wheel pair should be blocked.");
+    Assert(output.Length == 0, "Blocked atomic wheel export must not write partial text.");
+}
+
+static void XmbcAtomicMouseActionsExportAllSupportedMarkers()
+{
+    var document = CreateDocument(
+        new MouseMacroEvent(0, MouseButton.WheelUp, InputTransition.Down),
+        new MouseMacroEvent(1, MouseButton.WheelUp, InputTransition.Up),
+        new MouseMacroEvent(2, MouseButton.WheelDown, InputTransition.Down),
+        new MouseMacroEvent(3, MouseButton.WheelDown, InputTransition.Up),
+        new MouseMacroEvent(4, MouseButton.TiltLeft, InputTransition.Down),
+        new MouseMacroEvent(5, MouseButton.TiltLeft, InputTransition.Up),
+        new MouseMacroEvent(6, MouseButton.TiltRight, InputTransition.Down),
+        new MouseMacroEvent(7, MouseButton.TiltRight, InputTransition.Up));
+    using var output = new MemoryStream();
+    var diagnostics = new XmbcMacroTextExporter().ExportAsync(document, output).GetAwaiter().GetResult();
+
+    Assert(diagnostics.All(item => item.Severity != DiagnosticSeverity.Error), "Supported atomic mouse actions should export without errors.");
+    Assert(Encoding.UTF8.GetString(output.ToArray()) == "{MWUP}{MWDN}{TILTL}{TILTR}", "Atomic mouse markers were not exported in order.");
+}
+
+static void XmbcRejectsMalformedAtomicMouseEvents()
+{
+    var document = CreateDocument(
+        new MouseMacroEvent(0, MouseButton.WheelUp, InputTransition.Down),
+        new MouseMacroEvent(1, MouseButton.WheelDown, InputTransition.Up),
+        new MouseMacroEvent(2, MouseButton.TiltLeft, InputTransition.Up));
+    using var output = new MemoryStream();
+    var diagnostics = new XmbcMacroTextExporter().ExportAsync(document, output).GetAwaiter().GetResult();
+
+    Assert(
+        diagnostics.Count(item => item.Code == "XMBC_EXPORT_ATOMIC_MOUSE_PAIR_REQUIRED") >= 2,
+        "Mismatched and isolated atomic mouse events should both be diagnosed.");
+    Assert(output.Length == 0, "Malformed atomic mouse events must not produce partial output.");
 }
 
 static void ApplicationImportServiceHandlesFixtureDirectory()

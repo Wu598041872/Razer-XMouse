@@ -392,7 +392,7 @@ public sealed class WorkspaceViewModel : ObservableObject
         XmbcCommandMacroEvent command => new(command.Sequence, "XMBC 命令", $"{command.Category} · {command.RawTag}"),
         MacroReferenceEvent reference => new(reference.Sequence, "嵌套宏", reference.TargetName ?? reference.TargetGuid?.ToString() ?? $"索引 {reference.TargetIndex}"),
         UnknownMacroEvent unknown => new(unknown.Sequence, "未知", $"{unknown.SourceType} · {unknown.RawPayload}"),
-        _ => new(macroEvent.Sequence, macroEvent.GetType().Name, string.Empty),
+        _ => new(macroEvent.Sequence, "其他", string.Empty),
     };
 
     private void AppendDiagnostics(IEnumerable<ConversionDiagnostic> diagnostics)

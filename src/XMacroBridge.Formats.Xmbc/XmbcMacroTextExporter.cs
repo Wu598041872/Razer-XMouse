@@ -21,12 +21,15 @@ public sealed class XmbcMacroTextExporter : IMacroExporter
 
         var diagnostics = new List<ConversionDiagnostic>();
         diagnostics.AddRange(new MacroValidator().Validate(document).Diagnostics);
+        var orderedEvents = document.Events.OrderBy(item => item.Sequence).ToArray();
+        ValidateAtomicMousePairs(orderedEvents, diagnostics);
         var builder = new StringBuilder();
         if (!diagnostics.Any(item => item.Severity == DiagnosticSeverity.Error))
         {
-            foreach (var macroEvent in document.Events.OrderBy(item => item.Sequence))
+            for (var index = 0; index < orderedEvents.Length; index++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                var macroEvent = orderedEvents[index];
                 switch (macroEvent)
                 {
                     case DelayMacroEvent delay:
@@ -51,6 +54,10 @@ public sealed class XmbcMacroTextExporter : IMacroExporter
                             DiagnosticSeverity.Error,
                             $"XMBC 文本导出尚不支持虚拟键码 {key.VirtualKey}。",
                             key.Sequence));
+                        break;
+                    case MouseMacroEvent mouse when IsAtomicMouseButton(mouse.Button):
+                        builder.Append(FormatAtomicMouse(mouse.Button));
+                        index++;
                         break;
                     case MouseMacroEvent mouse when TryFormatMouse(mouse, out var mouseText):
                         builder.Append(mouseText);
@@ -171,21 +178,51 @@ public sealed class XmbcMacroTextExporter : IMacroExporter
             (MouseButton.XButton1, InputTransition.Up) => "{MB4U}",
             (MouseButton.XButton2, InputTransition.Down) => "{MB5D}",
             (MouseButton.XButton2, InputTransition.Up) => "{MB5U}",
-            (MouseButton.WheelUp, InputTransition.Down) => "{MWUP}",
-            (MouseButton.WheelUp, InputTransition.Up) => string.Empty,
-            (MouseButton.WheelDown, InputTransition.Down) => "{MWDN}",
-            (MouseButton.WheelDown, InputTransition.Up) => string.Empty,
-            (MouseButton.TiltLeft, InputTransition.Down) => "{TILTL}",
-            (MouseButton.TiltLeft, InputTransition.Up) => string.Empty,
-            (MouseButton.TiltRight, InputTransition.Down) => "{TILTR}",
-            (MouseButton.TiltRight, InputTransition.Up) => string.Empty,
             _ => string.Empty,
         };
-        return text.Length > 0 ||
-               mouse is
-               {
-                   Button: MouseButton.WheelUp or MouseButton.WheelDown or MouseButton.TiltLeft or MouseButton.TiltRight,
-                   Transition: InputTransition.Up,
-               };
+        return text.Length > 0;
     }
+
+    private static void ValidateAtomicMousePairs(
+        IReadOnlyList<MacroEvent> events,
+        ICollection<ConversionDiagnostic> diagnostics)
+    {
+        for (var index = 0; index < events.Count; index++)
+        {
+            if (events[index] is not MouseMacroEvent mouse || !IsAtomicMouseButton(mouse.Button))
+            {
+                continue;
+            }
+
+            if (mouse.Transition == InputTransition.Down &&
+                index + 1 < events.Count &&
+                events[index + 1] is MouseMacroEvent
+                {
+                    Transition: InputTransition.Up,
+                } release &&
+                release.Button == mouse.Button)
+            {
+                index++;
+                continue;
+            }
+
+            diagnostics.Add(new ConversionDiagnostic(
+                "XMBC_EXPORT_ATOMIC_MOUSE_PAIR_REQUIRED",
+                DiagnosticSeverity.Error,
+                $"XMBC 的 {mouse.Button} 是原子动作，必须使用相邻的按下/释放事件表示。",
+                mouse.Sequence));
+        }
+    }
+
+    private static bool IsAtomicMouseButton(MouseButton button) =>
+        button is MouseButton.WheelUp or MouseButton.WheelDown or MouseButton.TiltLeft or MouseButton.TiltRight;
+
+    private static string FormatAtomicMouse(MouseButton button) => button switch
+    {
+        MouseButton.WheelUp => "{MWUP}",
+        MouseButton.WheelDown => "{MWDN}",
+        MouseButton.TiltLeft => "{TILTL}",
+        MouseButton.TiltRight => "{TILTR}",
+        _ => throw new ArgumentOutOfRangeException(nameof(button), button, "不是 XMBC 原子鼠标动作。"),
+    };
 }

@@ -4,6 +4,7 @@
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
     <RootNamespace>XMacroBridge.App.SmokeTests</RootNamespace>
+    <ApplicationManifest>..\..\src\XMacroBridge.App\app.manifest</ApplicationManifest>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\XMacroBridge.App\XMacroBridge.App.csproj" />

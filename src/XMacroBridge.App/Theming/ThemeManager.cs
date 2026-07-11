@@ -58,17 +58,15 @@ internal sealed class ThemeManager : IDisposable
 
     private void ApplyCurrentTheme()
     {
-        var palette = mode switch
-        {
-            ThemeMode.Light => CreateLightPalette(),
-            ThemeMode.Dark => CreateDarkPalette(),
-            ThemeMode.HighContrast => CreateHighContrastPalette(),
-            _ => SystemParameters.HighContrast
-                ? CreateHighContrastPalette()
-                : IsDarkApplicationThemeEnabled()
-                    ? CreateDarkPalette()
-                    : CreateLightPalette(),
-        };
+        var palette = SystemParameters.HighContrast
+            ? CreateHighContrastPalette()
+            : mode switch
+            {
+                ThemeMode.Light => CreateLightPalette(),
+                ThemeMode.Dark => CreateDarkPalette(),
+                ThemeMode.HighContrast => CreateHighContrastPalette(),
+                _ => IsDarkApplicationThemeEnabled() ? CreateDarkPalette() : CreateLightPalette(),
+            };
 
         SetBrush("PageBrush", palette.Page);
         SetBrush("CardBrush", palette.Card);
@@ -79,7 +77,12 @@ internal sealed class ThemeManager : IDisposable
         SetBrush("AccentHoverBrush", palette.AccentHover);
         SetBrush("AccentFillBrush", palette.AccentFill);
         SetBrush("AccentFillTextBrush", palette.AccentFillText);
+        SetBrush("AccentFillHoverBrush", palette.AccentFillHover);
+        SetBrush("AccentFillPressedBrush", palette.AccentFillPressed);
+        SetBrush("FocusRingBrush", palette.FocusRing);
+        SetBrush("PrimaryFocusRingBrush", palette.PrimaryFocusRing);
         SetBrush("SelectionBrush", palette.Selection);
+        SetBrush("SelectionTextBrush", palette.SelectionText);
         SetBrush("ErrorBrush", palette.Error);
         SetBrush("WarningBrush", palette.Warning);
         SetBrush("SuccessBrush", palette.Success);
@@ -88,6 +91,7 @@ internal sealed class ThemeManager : IDisposable
         SetBrush("AlternateRowBrush", palette.AlternateRow);
         SetBrush("DiagnosticSurfaceBrush", palette.DiagnosticSurface);
         SetBrush("SuccessSurfaceBrush", palette.SuccessSurface);
+        SetBrush("SuccessSurfaceTextBrush", palette.SuccessSurfaceText);
     }
 
     private void SetBrush(string key, Color color) =>
@@ -116,7 +120,12 @@ internal sealed class ThemeManager : IDisposable
         Parse("#FF004FA8"),
         Parse("#FF005FC7"),
         Parse("#FFFFFFFF"),
+        Parse("#FF004FA8"),
+        Parse("#FF003F86"),
+        Parse("#FF000000"),
+        Parse("#FFFFFFFF"),
         Parse("#FFEAF3FF"),
+        Parse("#FF1D1D1F"),
         Parse("#FFD70015"),
         Parse("#FFB05A00"),
         Parse("#FF19753B"),
@@ -124,7 +133,8 @@ internal sealed class ThemeManager : IDisposable
         Parse("#0D000000"),
         Parse("#66F5F5F7"),
         Parse("#FFF8F8FA"),
-        Parse("#FFEAF7EE"));
+        Parse("#FFEAF7EE"),
+        Parse("#FF19753B"));
 
     private static ThemePalette CreateDarkPalette() => new(
         Parse("#FF1C1C1E"),
@@ -136,35 +146,47 @@ internal sealed class ThemeManager : IDisposable
         Parse("#FF8CC5FF"),
         Parse("#FF0068D9"),
         Parse("#FFFFFFFF"),
+        Parse("#FF005ABF"),
+        Parse("#FF004A9E"),
+        Parse("#FFFFFFFF"),
+        Parse("#FFFFFFFF"),
         Parse("#FF263C59"),
-        Parse("#FFFF6B61"),
+        Parse("#FFF5F5F7"),
+        Parse("#FFFF7369"),
         Parse("#FFFF9F0A"),
         Parse("#FF30D158"),
         Parse("#FF3A3A3C"),
         Parse("#33FFFFFF"),
         Parse("#1AFFFFFF"),
         Parse("#FF343436"),
-        Parse("#FF153D24"));
+        Parse("#FF153D24"),
+        Parse("#FF30D158"));
 
     private static ThemePalette CreateHighContrastPalette() => new(
-        SystemColors.WindowColor,
-        SystemColors.WindowColor,
-        SystemColors.WindowTextColor,
-        SystemColors.WindowTextColor,
-        SystemColors.WindowTextColor,
-        SystemColors.WindowTextColor,
-        SystemColors.WindowTextColor,
-        SystemColors.WindowTextColor,
-        SystemColors.WindowColor,
-        SystemColors.HighlightColor,
-        SystemColors.WindowTextColor,
-        SystemColors.WindowTextColor,
-        SystemColors.WindowTextColor,
-        SystemColors.ControlColor,
-        SystemColors.WindowTextColor,
-        SystemColors.ControlColor,
-        SystemColors.ControlColor,
-        SystemColors.HighlightColor);
+        Page: SystemColors.WindowColor,
+        Card: SystemColors.WindowColor,
+        TextPrimary: SystemColors.WindowTextColor,
+        TextSecondary: SystemColors.WindowTextColor,
+        Divider: SystemColors.WindowTextColor,
+        Accent: SystemColors.WindowTextColor,
+        AccentHover: SystemColors.WindowTextColor,
+        AccentFill: SystemColors.WindowTextColor,
+        AccentFillText: SystemColors.WindowColor,
+        AccentFillHover: SystemColors.WindowTextColor,
+        AccentFillPressed: SystemColors.WindowTextColor,
+        FocusRing: SystemColors.WindowTextColor,
+        PrimaryFocusRing: SystemColors.WindowColor,
+        Selection: SystemColors.WindowColor,
+        SelectionText: SystemColors.WindowTextColor,
+        Error: SystemColors.WindowTextColor,
+        Warning: SystemColors.WindowTextColor,
+        Success: SystemColors.WindowTextColor,
+        SurfaceSecondary: SystemColors.WindowColor,
+        CardBorder: SystemColors.WindowTextColor,
+        AlternateRow: SystemColors.WindowColor,
+        DiagnosticSurface: SystemColors.WindowColor,
+        SuccessSurface: SystemColors.WindowTextColor,
+        SuccessSurfaceText: SystemColors.WindowColor);
 
     private static Color Parse(string value) => (Color)ColorConverter.ConvertFromString(value)!;
 
@@ -178,7 +200,12 @@ internal sealed class ThemeManager : IDisposable
         Color AccentHover,
         Color AccentFill,
         Color AccentFillText,
+        Color AccentFillHover,
+        Color AccentFillPressed,
+        Color FocusRing,
+        Color PrimaryFocusRing,
         Color Selection,
+        Color SelectionText,
         Color Error,
         Color Warning,
         Color Success,
@@ -186,5 +213,6 @@ internal sealed class ThemeManager : IDisposable
         Color CardBorder,
         Color AlternateRow,
         Color DiagnosticSurface,
-        Color SuccessSurface);
+        Color SuccessSurface,
+        Color SuccessSurfaceText);
 }

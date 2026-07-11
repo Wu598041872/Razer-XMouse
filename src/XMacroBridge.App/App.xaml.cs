@@ -5,6 +5,7 @@ namespace XMacroBridge.App;
 
 public partial class App : System.Windows.Application
 {
+    private const string ThemeTestEnvironmentVariable = "XMACROBRIDGE_TEST_MODE";
     private ThemeManager? themeManager;
 
     protected override void OnStartup(System.Windows.StartupEventArgs e)
@@ -32,20 +33,12 @@ public partial class App : System.Windows.Application
 
     private static ThemeMode ParseThemeMode(IReadOnlyList<string> arguments)
     {
-        for (var index = 0; index + 1 < arguments.Count; index++)
+        for (var index = 0; index < arguments.Count; index++)
         {
-            if (!string.Equals(arguments[index], "--theme-test", StringComparison.OrdinalIgnoreCase))
+            if (TryParseThemeArgument(arguments, index, out var mode))
             {
-                continue;
+                return mode;
             }
-
-            return arguments[index + 1].ToLowerInvariant() switch
-            {
-                "light" => ThemeMode.Light,
-                "dark" => ThemeMode.Dark,
-                "high-contrast" => ThemeMode.HighContrast,
-                _ => ThemeMode.System,
-            };
         }
 
         return ThemeMode.System;
@@ -55,7 +48,7 @@ public partial class App : System.Windows.Application
     {
         for (var index = 0; index < arguments.Count; index++)
         {
-            if (string.Equals(arguments[index], "--theme-test", StringComparison.OrdinalIgnoreCase))
+            if (TryParseThemeArgument(arguments, index, out _))
             {
                 index++;
                 continue;
@@ -66,5 +59,28 @@ public partial class App : System.Windows.Application
                 yield return arguments[index];
             }
         }
+    }
+
+    private static bool TryParseThemeArgument(
+        IReadOnlyList<string> arguments,
+        int index,
+        out ThemeMode mode)
+    {
+        mode = ThemeMode.System;
+        if (!string.Equals(Environment.GetEnvironmentVariable(ThemeTestEnvironmentVariable), "1", StringComparison.Ordinal) ||
+            index + 1 >= arguments.Count ||
+            !string.Equals(arguments[index], "--theme-test", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        mode = arguments[index + 1].ToLowerInvariant() switch
+        {
+            "light" => ThemeMode.Light,
+            "dark" => ThemeMode.Dark,
+            "high-contrast" => ThemeMode.HighContrast,
+            _ => ThemeMode.System,
+        };
+        return mode != ThemeMode.System;
     }
 }

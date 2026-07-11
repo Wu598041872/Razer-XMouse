@@ -26,10 +26,27 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 $smokeTestProject = Join-Path $projectRoot 'tests\XMacroBridge.App.SmokeTests\XMacroBridge.App.SmokeTests.csproj'
-$sampleDirectory = Join-Path $projectRoot 'samples'
-foreach ($theme in @('light', 'dark', 'high-contrast')) {
-    & $dotnet run --project $smokeTestProject -c $Configuration --no-build -- --theme-test $theme $sampleDirectory
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$smokeFixturePaths = @(
+    (Join-Path $projectRoot 'samples\razer\basic-key-delay.xml'),
+    (Join-Path $projectRoot 'samples\razer\nested-macros.synapse4'),
+    (Join-Path $projectRoot 'samples\xmbc\basic-key-delay.txt'),
+    (Join-Path $projectRoot 'samples\xmbc\settings-action28.xml')
+)
+$previousTestMode = $env:XMACROBRIDGE_TEST_MODE
+try {
+    $env:XMACROBRIDGE_TEST_MODE = '1'
+    foreach ($theme in @('light', 'dark', 'high-contrast')) {
+        & $dotnet run --project $smokeTestProject -c $Configuration --no-build -- --theme-test $theme @smokeFixturePaths
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
+}
+finally {
+    if ($null -eq $previousTestMode) {
+        Remove-Item Env:XMACROBRIDGE_TEST_MODE -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:XMACROBRIDGE_TEST_MODE = $previousTestMode
+    }
 }
 
 $devLogDate = [datetime]'2099-01-01'

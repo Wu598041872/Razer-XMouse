@@ -1,8 +1,15 @@
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
+using System.Runtime.InteropServices;
+using System.Reflection;
+using System.Text.RegularExpressions;
+using XMacroBridge.Core.Diagnostics;
+using XMacroBridge.Core.Models;
 using XMacroBridge.Presentation.Workspace;
 
 namespace XMacroBridge.App.SmokeTests;
@@ -13,7 +20,9 @@ internal static class Program
     private static int Main(string[] args)
     {
         var failures = new List<string>();
-        var expectedTheme = ReadExpectedTheme(args);
+        VerifyThemeOverrideIsolation();
+        var requestedTheme = ReadExpectedTheme(args);
+        var expectedTheme = SystemParameters.HighContrast ? "high-contrast" : requestedTheme;
         var application = new XMacroBridge.App.App();
         application.InitializeComponent();
         application.Startup += (_, _) =>
@@ -48,7 +57,11 @@ internal static class Program
             var window = application.MainWindow as XMacroBridge.App.MainWindow
                 ?? throw new InvalidOperationException("MainWindow was not created.");
             window.ShowInTaskbar = false;
-            window.WindowState = WindowState.Minimized;
+            window.Left = -20_000;
+            window.Top = -20_000;
+            window.Width = 900;
+            window.Height = 500;
+            window.WindowState = WindowState.Normal;
 
             var viewModel = window.DataContext as WorkspaceViewModel
                 ?? throw new InvalidOperationException("WorkspaceViewModel is not the DataContext.");
@@ -57,9 +70,12 @@ internal static class Program
                 await Task.Delay(25);
             }
 
-            Assert(viewModel.Macros.Count == 9, "Expected nine imported anonymous fixture macros.");
+            Assert(viewModel.Macros.Count == 8, "Expected eight imported fixed smoke-test macros.");
             Assert(viewModel.SelectedMacro is not null, "The first imported macro was not selected.");
             Assert(viewModel.Diagnostics.Count == 3, "Expected three fixture diagnostics.");
+            Assert(viewModel.Macros.Any(item => item.Name == "匿名化基础宏"), "Razer fixture macro is absent.");
+            Assert(viewModel.Macros.Any(item => item.Name == "匿名化父宏"), "Synapse parent fixture macro is absent.");
+            Assert(viewModel.Macros.Any(item => item.Name == "basic-key-delay"), "XMBC text fixture macro is absent.");
 
             var macroList = Find<ListBox>(window, "MacroList");
             var eventTimeline = Find<DataGrid>(window, "EventTimeline");
@@ -71,8 +87,13 @@ internal static class Program
             var diagnosticGroups = Find<ItemsControl>(window, "DiagnosticGroupList");
             var targetFormat = Find<ComboBox>(window, "TargetFormatSelector");
             var progress = Find<ProgressBar>(window, "OperationProgress");
+            var workspaceScroll = Find<ScrollViewer>(window, "WorkspaceScrollViewer");
+            var diagnosticScroll = Find<ScrollViewer>(window, "DiagnosticScrollViewer");
+            var statusText = Find<TextBlock>(window, "StatusTextBlock");
 
-            Assert(macroList.Items.Count == 9, "Macro list binding did not expose nine items.");
+            window.UpdateLayout();
+
+            Assert(macroList.Items.Count == 8, "Macro list binding did not expose eight fixed fixture items.");
             Assert(eventTimeline.Items.Count == viewModel.SelectedMacro!.Events.Count, "Event timeline is out of sync with the selection.");
             Assert(exportButton.IsEnabled, "Export should be enabled for the selected valid fixture.");
             Assert(importFilesButton.IsEnabled, "Import should be enabled after startup import completes.");
@@ -90,7 +111,25 @@ internal static class Program
                 scopeFilter,
                 diagnosticGroups,
                 targetFormat,
-                progress);
+                progress,
+                workspaceScroll,
+                diagnosticScroll,
+                statusText);
+            VerifyDpiAwareness(window);
+            VerifyCompactLayout(workspaceScroll);
+            VerifyKeyboardContract(
+                importFilesButton,
+                Find<Button>(window, "ImportFolderButton"),
+                macroList,
+                targetFormat,
+                exportButton,
+                eventTimeline,
+                severityFilter,
+                scopeFilter,
+                diagnosticScroll,
+                cancelButton);
+            VerifyGeneratedAccessibility(viewModel, macroList, eventTimeline, diagnosticGroups, statusText);
+            VerifyTimelineVirtualization(viewModel, eventTimeline);
             VerifyTheme(application, expectedTheme);
 
             application.Shutdown(0);
@@ -121,6 +160,190 @@ internal static class Program
         }
     }
 
+    private static void VerifyThemeOverrideIsolation()
+    {
+        var previousValue = Environment.GetEnvironmentVariable("XMACROBRIDGE_TEST_MODE");
+        try
+        {
+            Environment.SetEnvironmentVariable("XMACROBRIDGE_TEST_MODE", null);
+            var parseThemeMode = typeof(XMacroBridge.App.App).GetMethod(
+                "ParseThemeMode",
+                BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Theme argument parser was not found.");
+            var result = parseThemeMode.Invoke(null, [new[] { "--theme-test", "dark" }]);
+            Assert(string.Equals(result?.ToString(), "System", StringComparison.Ordinal), "Theme test override escaped the test-mode boundary.");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("XMACROBRIDGE_TEST_MODE", previousValue);
+        }
+    }
+
+    private static void VerifyDpiAwareness(Window window)
+    {
+        var context = GetWindowDpiAwarenessContext(new System.Windows.Interop.WindowInteropHelper(window).Handle);
+        var awareness = GetAwarenessFromDpiAwarenessContext(context);
+        Assert(awareness == 2, $"Expected Per-Monitor DPI awareness, actual value was {awareness}.");
+        Assert(
+            AreDpiAwarenessContextsEqual(context, new nint(-4)),
+            "Expected the WPF window to use PerMonitorV2 rather than PerMonitor v1.");
+    }
+
+    private static void VerifyCompactLayout(ScrollViewer workspaceScroll)
+    {
+        Assert(workspaceScroll.ScrollableHeight > 0, "Compact 900x500 layout should provide vertical scrolling instead of clipping.");
+        Assert(
+            workspaceScroll.ScrollableWidth <= 1,
+            $"Compact 900x500 layout should not require horizontal scrolling (ScrollableWidth={workspaceScroll.ScrollableWidth:F1}, ExtentWidth={workspaceScroll.ExtentWidth:F1}, ViewportWidth={workspaceScroll.ViewportWidth:F1}).");
+    }
+
+    private static void VerifyKeyboardContract(params Control[] controls)
+    {
+        var expectedTabIndex = 0;
+        foreach (var control in controls)
+        {
+            Assert(control.TabIndex == expectedTabIndex, $"{control.Name} has TabIndex {control.TabIndex}, expected {expectedTabIndex}.");
+            expectedTabIndex++;
+        }
+
+        var eventTimeline = controls.OfType<DataGrid>().Single();
+        Assert(KeyboardNavigation.GetTabNavigation(eventTimeline) == KeyboardNavigationMode.Once, "Event timeline must be a single Tab stop.");
+        Assert(
+            Descendants(eventTimeline).OfType<DataGridCell>().All(cell => !cell.IsTabStop),
+            "Read-only event timeline cells must not create a Tab trap.");
+
+        var diagnosticScroll = controls.OfType<ScrollViewer>().Single();
+        Assert(KeyboardNavigation.GetTabNavigation(diagnosticScroll) == KeyboardNavigationMode.None, "Diagnostic entries must use one named scroll-region Tab stop.");
+
+        VerifyFocusRing(controls.OfType<Button>().Single(item => item.Name == "ImportFolderButton"), "FocusRingBrush");
+        VerifyFocusRing(controls.OfType<Button>().Single(item => item.Name == "ExportButton"), "PrimaryFocusRingBrush");
+    }
+
+    private static void VerifyFocusRing(Button button, string expectedBrushKey)
+    {
+        Assert(button.Focus(), $"{button.Name} could not receive keyboard focus.");
+        button.UpdateLayout();
+        var border = button.Template.FindName("ButtonBorder", button) as Border
+            ?? throw new InvalidOperationException($"{button.Name} template border was not generated.");
+        var actualBrush = border.BorderBrush as SolidColorBrush
+            ?? throw new InvalidOperationException($"{button.Name} focus border is not a solid brush.");
+        var expectedBrush = System.Windows.Application.Current.Resources[expectedBrushKey] as SolidColorBrush
+            ?? throw new InvalidOperationException($"Theme resource {expectedBrushKey} is unavailable.");
+        Assert(
+            actualBrush.Color == expectedBrush.Color,
+            $"{button.Name} did not apply {expectedBrushKey} while focused " +
+            $"(actual={actualBrush.Color}, expected={expectedBrush.Color}, focused={button.IsKeyboardFocused}, within={button.IsKeyboardFocusWithin}).");
+        Assert(border.BorderThickness.Left >= 2, $"{button.Name} focus ring is thinner than 2 DIP.");
+    }
+
+    private static void VerifyGeneratedAccessibility(
+        WorkspaceViewModel viewModel,
+        ListBox macroList,
+        DataGrid eventTimeline,
+        ItemsControl diagnosticGroups,
+        TextBlock statusText)
+    {
+        var sensitiveGuid = Guid.Parse("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        var syntheticMacro = new MacroDocument(
+            sensitiveGuid,
+            $@"C:\Private\macro-{sensitiveGuid}.xml",
+            [new UnknownMacroEvent(0, "SyntheticEvent", $@"C:\Private\payload-{sensitiveGuid}.txt")],
+            "smoke.synthetic",
+            @"C:\Private\macro.xml");
+        viewModel.Macros.Add(syntheticMacro);
+        viewModel.SelectedMacro = syntheticMacro;
+        viewModel.Diagnostics.Add(new ConversionDiagnostic(
+            "SMOKE_UIA_REDACTION",
+            DiagnosticSeverity.Info,
+            $"匿名化诊断详情 C:\\Private\\macro-{sensitiveGuid}.txt",
+            SourceContext: @"C:\Private\macro.txt"));
+        diagnosticGroups.UpdateLayout();
+
+        for (var index = 0; index < macroList.Items.Count; index++)
+        {
+            macroList.ScrollIntoView(macroList.Items[index]);
+            macroList.UpdateLayout();
+            var macroItem = macroList.ItemContainerGenerator.ContainerFromIndex(index) as ListBoxItem
+                ?? throw new InvalidOperationException($"Macro item container {index} was not generated.");
+            AssertSafeAutomationName(macroItem, $"macro item {index}");
+        }
+
+        for (var index = 0; index < eventTimeline.Items.Count; index++)
+        {
+            var eventRow = eventTimeline.ItemContainerGenerator.ContainerFromIndex(index) as DataGridRow
+                ?? throw new InvalidOperationException($"Event row container {index} was not generated.");
+            AssertSafeAutomationName(eventRow, $"event row {index}");
+        }
+
+        for (var groupIndex = 0; groupIndex < diagnosticGroups.Items.Count; groupIndex++)
+        {
+            var diagnosticGroup = diagnosticGroups.ItemContainerGenerator.ContainerFromIndex(groupIndex) as FrameworkElement
+                ?? throw new InvalidOperationException($"Diagnostic group container {groupIndex} was not generated.");
+            AssertSafeAutomationName(diagnosticGroup, $"diagnostic group {groupIndex}");
+            var diagnosticItems = Descendants(diagnosticGroup).OfType<ItemsControl>().FirstOrDefault()
+                ?? throw new InvalidOperationException($"Diagnostic item list {groupIndex} was not generated.");
+            diagnosticItems.UpdateLayout();
+            for (var itemIndex = 0; itemIndex < diagnosticItems.Items.Count; itemIndex++)
+            {
+                var diagnosticItem = diagnosticItems.ItemContainerGenerator.ContainerFromIndex(itemIndex) as FrameworkElement
+                    ?? throw new InvalidOperationException($"Diagnostic item container {groupIndex}:{itemIndex} was not generated.");
+                AssertSafeAutomationName(diagnosticItem, $"diagnostic item {groupIndex}:{itemIndex}");
+            }
+        }
+
+        Assert(
+            AutomationProperties.GetLiveSetting(statusText) == AutomationLiveSetting.Polite,
+            "Status text must expose a polite live region.");
+        Assert(
+            AutomationProperties.GetName(statusText).Contains(statusText.Text, StringComparison.Ordinal),
+            "Status live region must expose the current status text in its accessibility name.");
+    }
+
+    private static void VerifyTimelineVirtualization(WorkspaceViewModel viewModel, DataGrid eventTimeline)
+    {
+        var events = Enumerable.Range(0, 5_000)
+            .Select(index => (MacroEvent)new DelayMacroEvent(index, 1))
+            .ToArray();
+        var largeMacro = new MacroDocument(Guid.NewGuid(), "匿名化大型时间线", events, "smoke.synthetic");
+        viewModel.Macros.Add(largeMacro);
+        viewModel.SelectedMacro = largeMacro;
+        eventTimeline.UpdateLayout();
+
+        var realizedRows = Descendants(eventTimeline).OfType<DataGridRow>().Count();
+        Assert(
+            realizedRows < 200,
+            $"Timeline virtualization is ineffective: {realizedRows} of {events.Length} rows were realized.");
+    }
+
+    private static void AssertSafeAutomationName(DependencyObject element, string description)
+    {
+        var name = AutomationProperties.GetName(element);
+        Assert(!string.IsNullOrWhiteSpace(name), $"Generated {description} has no accessibility name.");
+        Assert(
+            !new[] { "MacroDocument", "MacroEventRow", "ConversionDiagnostic", "DiagnosticGroup" }
+                .Any(typeName => name.Contains(typeName, StringComparison.Ordinal)),
+            $"Generated {description} leaks an internal type name.");
+        Assert(
+            !Regex.IsMatch(name, @"(?:[A-Za-z]:[\\/]|\\\\[^\\]+\\[^\\]+)"),
+            $"Generated {description} leaks an absolute path.");
+        Assert(
+            !Regex.IsMatch(name, @"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b"),
+            $"Generated {description} leaks a GUID.");
+    }
+
+    private static IEnumerable<DependencyObject> Descendants(DependencyObject root)
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            var child = VisualTreeHelper.GetChild(root, index);
+            yield return child;
+            foreach (var descendant in Descendants(child))
+            {
+                yield return descendant;
+            }
+        }
+    }
+
     private static void VerifyTheme(System.Windows.Application application, string expectedTheme)
     {
         var page = GetColor(application, "PageBrush");
@@ -130,9 +353,20 @@ internal static class Program
         var accent = GetColor(application, "AccentBrush");
         var accentFill = GetColor(application, "AccentFillBrush");
         var accentFillText = GetColor(application, "AccentFillTextBrush");
+        var accentFillHover = GetColor(application, "AccentFillHoverBrush");
+        var accentFillPressed = GetColor(application, "AccentFillPressedBrush");
+        var focusRing = GetColor(application, "FocusRingBrush");
+        var primaryFocusRing = GetColor(application, "PrimaryFocusRingBrush");
+        var selection = GetColor(application, "SelectionBrush");
+        var selectionText = GetColor(application, "SelectionTextBrush");
+        var surfaceSecondary = GetColor(application, "SurfaceSecondaryBrush");
+        var alternateRow = Composite(GetColor(application, "AlternateRowBrush"), card);
+        var diagnosticSurface = GetColor(application, "DiagnosticSurfaceBrush");
         var error = GetColor(application, "ErrorBrush");
         var warning = GetColor(application, "WarningBrush");
         var success = GetColor(application, "SuccessBrush");
+        var successSurface = GetColor(application, "SuccessSurfaceBrush");
+        var successSurfaceText = GetColor(application, "SuccessSurfaceTextBrush");
 
         var expectedPage = expectedTheme switch
         {
@@ -147,11 +381,27 @@ internal static class Program
         AssertContrast("primary text on card", primary, card);
         AssertContrast("secondary text on page", secondary, page);
         AssertContrast("secondary text on card", secondary, card);
+        AssertContrast("primary text on secondary surface", primary, surfaceSecondary);
+        AssertContrast("secondary text on secondary surface", secondary, surfaceSecondary);
+        AssertContrast("primary text on alternate row", primary, alternateRow);
+        AssertContrast("secondary text on alternate row", secondary, alternateRow);
+        AssertContrast("primary text on diagnostic surface", primary, diagnosticSurface);
+        AssertContrast("secondary text on diagnostic surface", secondary, diagnosticSurface);
         AssertContrast("accent on card", accent, card);
+        AssertContrast("accent on diagnostic surface", accent, diagnosticSurface);
         AssertContrast("button text on accent fill", accentFillText, accentFill);
-        AssertContrast("error on card", error, card);
-        AssertContrast("warning on card", warning, card);
-        AssertContrast("success on card", success, card);
+        AssertContrast("button text on hover fill", accentFillText, accentFillHover);
+        AssertContrast("button text on pressed fill", accentFillText, accentFillPressed);
+        AssertContrastMinimum("secondary button focus ring", focusRing, surfaceSecondary, 3);
+        AssertContrastMinimum("secondary button active focus ring", focusRing, selection, 3);
+        AssertContrastMinimum("primary button focus ring", primaryFocusRing, accentFill, 3);
+        AssertContrastMinimum("primary hover focus ring", primaryFocusRing, accentFillHover, 3);
+        AssertContrastMinimum("primary pressed focus ring", primaryFocusRing, accentFillPressed, 3);
+        AssertContrast("selection text on selection", selectionText, selection);
+        AssertContrast("error on diagnostic surface", error, diagnosticSurface);
+        AssertContrast("warning on diagnostic surface", warning, diagnosticSurface);
+        AssertContrast("success on diagnostic surface", success, diagnosticSurface);
+        AssertContrast("success badge text on success surface", successSurfaceText, successSurface);
     }
 
     private static Color GetColor(System.Windows.Application application, string key) =>
@@ -159,12 +409,25 @@ internal static class Program
             ? brush.Color
             : throw new InvalidOperationException($"Theme resource {key} is not a SolidColorBrush.");
 
+    private static Color Composite(Color foreground, Color background)
+    {
+        var alpha = foreground.A / 255d;
+        return Color.FromArgb(
+            255,
+            (byte)Math.Round(foreground.R * alpha + background.R * (1 - alpha)),
+            (byte)Math.Round(foreground.G * alpha + background.G * (1 - alpha)),
+            (byte)Math.Round(foreground.B * alpha + background.B * (1 - alpha)));
+    }
+
     private static void AssertContrast(string description, Color foreground, Color background)
+        => AssertContrastMinimum(description, foreground, background, 4.5);
+
+    private static void AssertContrastMinimum(string description, Color foreground, Color background, double minimum)
     {
         var lighter = Math.Max(RelativeLuminance(foreground), RelativeLuminance(background));
         var darker = Math.Min(RelativeLuminance(foreground), RelativeLuminance(background));
         var ratio = (lighter + 0.05) / (darker + 0.05);
-        Assert(ratio >= 4.5, $"Contrast for {description} is {ratio:F2}:1, below 4.5:1.");
+        Assert(ratio >= minimum, $"Contrast for {description} is {ratio:F2}:1, below {minimum:F1}:1.");
     }
 
     private static double RelativeLuminance(Color color) =>
@@ -197,4 +460,14 @@ internal static class Program
             throw new InvalidOperationException(message);
         }
     }
+
+    [DllImport("user32.dll")]
+    private static extern nint GetWindowDpiAwarenessContext(nint windowHandle);
+
+    [DllImport("user32.dll")]
+    private static extern int GetAwarenessFromDpiAwarenessContext(nint value);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool AreDpiAwarenessContextsEqual(nint first, nint second);
 }

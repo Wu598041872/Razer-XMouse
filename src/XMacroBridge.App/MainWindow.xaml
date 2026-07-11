@@ -263,6 +263,8 @@
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="8" />
+                            <RowDefinition Height="Auto" />
                             <RowDefinition Height="10" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
@@ -273,13 +275,90 @@
                             </Grid.ColumnDefinitions>
                             <TextBlock Style="{StaticResource SectionTitleStyle}" Text="事件时间线" />
                             <TextBlock Grid.Column="1"
-                                       VerticalAlignment="Center"
-                                       Style="{StaticResource CaptionStyle}"
-                                       Text="只读预览 · 编辑器将在后续阶段开放" />
+                                        VerticalAlignment="Center"
+                                        Style="{StaticResource CaptionStyle}"
+                                        Text="选择固定延时后可修改 · 所有编辑均可撤销" />
                         </Grid>
 
+                        <WrapPanel Grid.Row="2" VerticalAlignment="Center">
+                            <TextBlock Margin="0,0,6,0"
+                                       VerticalAlignment="Center"
+                                       Style="{StaticResource CaptionStyle}"
+                                       Text="选中延时" />
+                            <TextBox x:Name="DelayMillisecondsTextBox"
+                                     AutomationProperties.Name="选中事件延时毫秒"
+                                     AutomationProperties.HelpText="输入大于或等于零的整数毫秒"
+                                     TabIndex="6"
+                                     Width="82"
+                                     Height="32"
+                                     Padding="8,5"
+                                     VerticalContentAlignment="Center"
+                                     Background="{DynamicResource SurfaceSecondaryBrush}"
+                                     BorderBrush="{DynamicResource DividerBrush}"
+                                     BorderThickness="1"
+                                     Text="{Binding DelayMillisecondsText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <Button x:Name="ApplyDelayButton"
+                                    AutomationProperties.Name="应用选中事件延时"
+                                    TabIndex="7"
+                                    Margin="6,0,14,0"
+                                    MinWidth="58"
+                                    Click="ApplyDelay_Click"
+                                    Content="应用"
+                                    IsEnabled="{Binding CanUpdateSelectedDelay}"
+                                    Style="{StaticResource SecondaryButtonStyle}" />
+
+                            <TextBlock Margin="0,0,6,0"
+                                       VerticalAlignment="Center"
+                                       Style="{StaticResource CaptionStyle}"
+                                       Text="全部延时" />
+                            <TextBox x:Name="DelayScalePercentTextBox"
+                                     AutomationProperties.Name="全部延时缩放百分比"
+                                     AutomationProperties.HelpText="同时缩放固定延时和随机延时，例如输入 125"
+                                     TabIndex="8"
+                                     Width="68"
+                                     Height="32"
+                                     Padding="8,5"
+                                     VerticalContentAlignment="Center"
+                                     Background="{DynamicResource SurfaceSecondaryBrush}"
+                                     BorderBrush="{DynamicResource DividerBrush}"
+                                     BorderThickness="1"
+                                     Text="{Binding DelayScalePercentText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBlock Margin="4,0,6,0"
+                                       VerticalAlignment="Center"
+                                       Style="{StaticResource CaptionStyle}"
+                                       Text="%" />
+                            <Button x:Name="ScaleDelaysButton"
+                                    AutomationProperties.Name="批量缩放全部延时"
+                                    TabIndex="9"
+                                    Margin="0,0,14,0"
+                                    MinWidth="58"
+                                    Click="ScaleDelays_Click"
+                                    Content="缩放"
+                                    IsEnabled="{Binding CanScaleDelays}"
+                                    Style="{StaticResource SecondaryButtonStyle}" />
+                            <Button x:Name="UndoButton"
+                                    AutomationProperties.Name="撤销时间线编辑"
+                                    TabIndex="10"
+                                    Margin="0,0,6,0"
+                                    MinWidth="58"
+                                    Click="Undo_Click"
+                                    Content="撤销"
+                                    IsEnabled="{Binding CanUndo}"
+                                    Style="{StaticResource SecondaryButtonStyle}"
+                                    ToolTip="{Binding UndoAvailabilityText}" />
+                            <Button x:Name="RedoButton"
+                                    AutomationProperties.Name="重做时间线编辑"
+                                    TabIndex="11"
+                                    MinWidth="58"
+                                    Click="Redo_Click"
+                                    Content="重做"
+                                    IsEnabled="{Binding CanRedo}"
+                                    Style="{StaticResource SecondaryButtonStyle}"
+                                    ToolTip="{Binding RedoAvailabilityText}" />
+                        </WrapPanel>
+
                         <DataGrid x:Name="EventTimeline"
-                                  Grid.Row="2"
+                                  Grid.Row="4"
                                   AutomationProperties.Name="宏事件时间线"
                                   Focusable="True"
                                   IsTabStop="True"
@@ -287,6 +366,7 @@
                                   KeyboardNavigation.TabNavigation="Once"
                                   TabIndex="5"
                                   ItemsSource="{Binding Events}"
+                                  SelectedItem="{Binding SelectedEvent, Mode=TwoWay}"
                                   AutoGenerateColumns="False"
                                   IsReadOnly="True"
                                   CanUserAddRows="False"
@@ -384,7 +464,7 @@
                                 <ComboBox x:Name="DiagnosticSeverityFilter"
                                           ItemsSource="{Binding DiagnosticSeverityOptions}"
                                           AutomationProperties.Name="诊断严重级别筛选"
-                                          TabIndex="6"
+                                          TabIndex="12"
                                           DisplayMemberPath="DisplayName"
                                           SelectedItem="{Binding SelectedDiagnosticSeverity, Mode=TwoWay}"
                                           Background="Transparent"
@@ -400,7 +480,7 @@
                                 <ComboBox x:Name="DiagnosticScopeFilter"
                                           ItemsSource="{Binding DiagnosticScopes}"
                                           AutomationProperties.Name="诊断来源筛选"
-                                          TabIndex="7"
+                                          TabIndex="13"
                                           DisplayMemberPath="DisplayName"
                                           SelectedItem="{Binding SelectedDiagnosticScope, Mode=TwoWay}"
                                           Background="Transparent"
@@ -432,7 +512,7 @@
                                           Focusable="True"
                                           IsTabStop="True"
                                           KeyboardNavigation.TabNavigation="None"
-                                          TabIndex="8"
+                                          TabIndex="14"
                                           VerticalScrollBarVisibility="Auto"
                                           HorizontalScrollBarVisibility="Disabled">
                                 <ItemsControl x:Name="DiagnosticGroupList"
@@ -561,7 +641,7 @@
                             <Button x:Name="CancelButton"
                                     Grid.Column="1"
                                     AutomationProperties.Name="取消当前操作"
-                                    TabIndex="9"
+                                    TabIndex="15"
                                     Margin="12,0,0,0"
                                     MinWidth="72"
                                     VerticalAlignment="Bottom"

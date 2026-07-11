@@ -70,6 +70,11 @@ var tests = new (string Name, Action Run)[]
     ("Workspace exports both supported target formats", WorkspaceExportsBothSupportedTargetFormats),
     ("Workspace blocks invalid selection and reports missing selection", WorkspaceBlocksInvalidAndMissingSelection),
     ("Workspace filters and groups diagnostics", WorkspaceFiltersAndGroupsDiagnostics),
+    ("Workspace delay editing revalidates and supports history", WorkspaceDelayEditingRevalidatesAndSupportsHistory),
+    ("Workspace delay scaling rounds fixed and random delays", WorkspaceDelayScalingRoundsFixedAndRandomDelays),
+    ("Workspace delay scaling rejects overflow atomically", WorkspaceDelayScalingRejectsOverflowAtomically),
+    ("Workspace edit history is bounded", WorkspaceEditHistoryIsBounded),
+    ("Workspace editing isolates duplicate macro identifiers", WorkspaceEditingIsolatesDuplicateMacroIdentifiers),
 };
 
 var failures = new List<string>();
@@ -1147,6 +1152,157 @@ static void WorkspaceFiltersAndGroupsDiagnostics()
     viewModel.Diagnostics.Clear();
     Assert(!viewModel.HasFilteredDiagnostics, "Empty diagnostics should expose an empty state.");
     Assert(viewModel.SelectedDiagnosticScope.SourceContext is null, "Clearing diagnostics should reset the source filter.");
+}
+
+static void WorkspaceDelayEditingRevalidatesAndSupportsHistory()
+{
+    var original = CreateNamedDocument(
+        "延时修复",
+        new KeyMacroEvent(0, 65, InputTransition.Down),
+        new DelayMacroEvent(1, -1),
+        new KeyMacroEvent(2, 65, InputTransition.Up));
+    var viewModel = WorkspaceViewModel.CreateDefault();
+    viewModel.Macros.Add(original);
+    viewModel.SelectedMacro = original;
+
+    Assert(!viewModel.CanExport, "Negative delay should block export before editing.");
+    Assert(viewModel.Diagnostics.Any(item => item.Code == "DELAY_NEGATIVE"), "Initial delay diagnostic is missing.");
+
+    viewModel.SelectedEvent = viewModel.Events.Single(item => item.IsFixedDelay);
+    viewModel.DelayMillisecondsText = "25";
+    Assert(viewModel.UpdateSelectedDelay(), "Selected delay edit should succeed.");
+    Assert(
+        original.Events.OfType<DelayMacroEvent>().Single().Milliseconds == -1,
+        "Editing must not mutate the imported document instance.");
+    Assert(
+        viewModel.SelectedMacro!.Events.OfType<DelayMacroEvent>().Single().Milliseconds == 25,
+        "Edited delay was not written to the replacement document.");
+    Assert(viewModel.CanExport, "Fixing the negative delay should immediately re-enable export.");
+    Assert(!viewModel.Diagnostics.Any(item => item.Code == "DELAY_NEGATIVE"), "Resolved delay diagnostic remained stale.");
+    Assert(viewModel.CanUndo && !viewModel.CanRedo, "Successful edit did not update history state.");
+
+    Assert(viewModel.Undo(), "Undo should restore the invalid delay snapshot.");
+    Assert(
+        viewModel.SelectedMacro!.Events.OfType<DelayMacroEvent>().Single().Milliseconds == -1,
+        "Undo did not restore the previous delay.");
+    Assert(!viewModel.CanExport, "Undo should immediately restore blocking validation.");
+    Assert(viewModel.Diagnostics.Any(item => item.Code == "DELAY_NEGATIVE"), "Undo did not restore its validation diagnostic.");
+    Assert(viewModel.CanRedo, "Undo did not enable redo.");
+
+    Assert(viewModel.Redo(), "Redo should restore the repaired delay snapshot.");
+    Assert(
+        viewModel.SelectedMacro!.Events.OfType<DelayMacroEvent>().Single().Milliseconds == 25,
+        "Redo did not restore the edited delay.");
+    Assert(viewModel.CanExport, "Redo should immediately restore valid export state.");
+    Assert(!viewModel.Diagnostics.Any(item => item.Code == "DELAY_NEGATIVE"), "Redo left a stale delay diagnostic.");
+}
+
+static void WorkspaceDelayScalingRoundsFixedAndRandomDelays()
+{
+    var original = CreateNamedDocument(
+        "延时缩放",
+        new KeyMacroEvent(0, 65, InputTransition.Down),
+        new DelayMacroEvent(1, 3),
+        new RandomDelayMacroEvent(2, 5, 7),
+        new KeyMacroEvent(3, 65, InputTransition.Up));
+    var viewModel = WorkspaceViewModel.CreateDefault();
+    viewModel.Macros.Add(original);
+    viewModel.SelectedMacro = original;
+    viewModel.SelectedEvent = viewModel.Events.Single(item => item.IsFixedDelay);
+    viewModel.DelayScalePercentText = "50";
+
+    Assert(viewModel.ScaleAllDelays(), "Delay scaling should succeed.");
+    var scaled = viewModel.SelectedMacro ?? throw new InvalidOperationException("Scaled macro selection is missing.");
+    Assert(scaled.Events.OfType<DelayMacroEvent>().Single().Milliseconds == 2, "Fixed delay must round midpoint away from zero.");
+    var random = scaled.Events.OfType<RandomDelayMacroEvent>().Single();
+    Assert(random.MinimumMilliseconds == 3 && random.MaximumMilliseconds == 4, "Random delay bounds were not scaled consistently.");
+    Assert(viewModel.SelectedEvent?.EventIndex == 1, "Scaling should preserve the selected event position.");
+
+    Assert(viewModel.Undo(), "Scaled delays should be undoable.");
+    Assert(viewModel.SelectedMacro!.Events.OfType<DelayMacroEvent>().Single().Milliseconds == 3, "Undo did not restore fixed delay.");
+    var restoredRandom = viewModel.SelectedMacro.Events.OfType<RandomDelayMacroEvent>().Single();
+    Assert(restoredRandom.MinimumMilliseconds == 5 && restoredRandom.MaximumMilliseconds == 7, "Undo did not restore random delay bounds.");
+
+    viewModel.DelayMillisecondsText = "9";
+    Assert(viewModel.UpdateSelectedDelay(), "A divergent edit after undo should succeed.");
+    Assert(!viewModel.CanRedo, "A divergent edit must clear the redo history.");
+}
+
+static void WorkspaceDelayScalingRejectsOverflowAtomically()
+{
+    var original = CreateNamedDocument("溢出缩放", new DelayMacroEvent(0, long.MaxValue));
+    var viewModel = WorkspaceViewModel.CreateDefault();
+    viewModel.Macros.Add(original);
+    viewModel.SelectedMacro = original;
+    viewModel.DelayScalePercentText = "200";
+
+    Assert(!viewModel.ScaleAllDelays(), "Overflowing delay scale must be rejected.");
+    Assert(
+        ReferenceEquals(viewModel.SelectedMacro, original) &&
+        viewModel.SelectedMacro.Events.OfType<DelayMacroEvent>().Single().Milliseconds == long.MaxValue,
+        "Rejected scaling must leave the macro snapshot unchanged.");
+    Assert(!viewModel.CanUndo && !viewModel.CanRedo, "Rejected scaling must not create history entries.");
+
+    var invalidRandom = CreateNamedDocument("无效随机延时", new RandomDelayMacroEvent(0, 10, 5));
+    var invalidRandomViewModel = WorkspaceViewModel.CreateDefault();
+    invalidRandomViewModel.Macros.Add(invalidRandom);
+    invalidRandomViewModel.SelectedMacro = invalidRandom;
+    invalidRandomViewModel.DelayScalePercentText = "50";
+    Assert(!invalidRandomViewModel.ScaleAllDelays(), "An inverted random delay range must be rejected.");
+    Assert(ReferenceEquals(invalidRandomViewModel.SelectedMacro, invalidRandom), "Rejected random-delay scaling changed the macro snapshot.");
+    Assert(!invalidRandomViewModel.CanUndo, "Rejected random-delay scaling created an undo entry.");
+}
+
+static void WorkspaceEditHistoryIsBounded()
+{
+    var original = CreateNamedDocument("历史上限", new DelayMacroEvent(0, 0));
+    var viewModel = WorkspaceViewModel.CreateDefault();
+    viewModel.Macros.Add(original);
+    viewModel.SelectedMacro = original;
+    viewModel.SelectedEvent = viewModel.Events.Single();
+
+    for (var milliseconds = 1; milliseconds <= 25; milliseconds++)
+    {
+        viewModel.DelayMillisecondsText = milliseconds.ToString();
+        Assert(viewModel.UpdateSelectedDelay(), $"Edit {milliseconds} should succeed.");
+    }
+
+    var undoCount = 0;
+    while (viewModel.Undo())
+    {
+        undoCount++;
+    }
+
+    Assert(undoCount == 20, $"History should retain exactly 20 edits, actual {undoCount}.");
+    Assert(
+        viewModel.SelectedMacro!.Events.OfType<DelayMacroEvent>().Single().Milliseconds == 5,
+        "Bounded history restored entries older than the configured limit.");
+}
+
+static void WorkspaceEditingIsolatesDuplicateMacroIdentifiers()
+{
+    var duplicateId = Guid.NewGuid();
+    var first = new MacroDocument(duplicateId, "重复一", [new DelayMacroEvent(0, -1)]);
+    var second = new MacroDocument(duplicateId, "重复二", [new DelayMacroEvent(0, 2)]);
+    var viewModel = WorkspaceViewModel.CreateDefault();
+    viewModel.Macros.Add(first);
+    viewModel.Macros.Add(second);
+    viewModel.SelectedMacro = first;
+    Assert(viewModel.Diagnostics.Any(item => item.Code == "DELAY_NEGATIVE"), "First duplicate-ID macro was not evaluated.");
+    viewModel.SelectedMacro = second;
+    viewModel.SelectedEvent = viewModel.Events.Single();
+    viewModel.DelayMillisecondsText = "9";
+
+    Assert(viewModel.UpdateSelectedDelay(), "Editing the second duplicate-ID macro should succeed.");
+    Assert(ReferenceEquals(viewModel.Macros[0], first), "Editing replaced the wrong duplicate-ID macro.");
+    Assert(viewModel.Macros[0].Events.OfType<DelayMacroEvent>().Single().Milliseconds == -1, "The first duplicate-ID macro was modified.");
+    Assert(viewModel.Macros[1].Events.OfType<DelayMacroEvent>().Single().Milliseconds == 9, "The selected duplicate-ID macro was not updated.");
+    Assert(viewModel.Diagnostics.Any(item => item.Code == "DELAY_NEGATIVE"), "Editing a duplicate-ID macro removed another macro's diagnostic.");
+    Assert(viewModel.Undo(), "Undo should target the edited duplicate-ID macro.");
+    Assert(ReferenceEquals(viewModel.Macros[0], first), "Undo replaced the wrong duplicate-ID macro.");
+    Assert(ReferenceEquals(viewModel.Macros[1], second), "Undo did not restore the selected duplicate-ID snapshot.");
+    Assert(viewModel.Redo(), "Redo should target the edited duplicate-ID macro.");
+    Assert(viewModel.Macros[1].Events.OfType<DelayMacroEvent>().Single().Milliseconds == 9, "Redo did not restore the selected duplicate-ID edit.");
 }
 
 static string CreateFixtureDirectory()

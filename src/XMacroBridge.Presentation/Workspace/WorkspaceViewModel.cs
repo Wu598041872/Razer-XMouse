@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using XMacroBridge.Application.Exporting;
 using XMacroBridge.Application.Formats;
 using XMacroBridge.Application.Importing;
@@ -12,12 +13,18 @@ namespace XMacroBridge.Presentation.Workspace;
 
 public sealed class WorkspaceViewModel : ObservableObject
 {
+    private const int MaximumEditHistoryEntries = 20;
     private readonly MacroImportService importService;
     private readonly SafeExportService exportService;
     private readonly INestedMacroResolver resolver;
     private readonly IMacroValidator validator;
+    private readonly List<MacroEditHistoryEntry> undoHistory = [];
+    private readonly List<MacroEditHistoryEntry> redoHistory = [];
+    private readonly Dictionary<MacroDocument, List<ConversionDiagnostic>> evaluationDiagnostics =
+        new(ReferenceEqualityComparer.Instance);
     private CancellationTokenSource? operationCancellation;
     private MacroDocument? selectedMacro;
+    private MacroEventRow? selectedEvent;
     private string targetFormatId = "razer.macro.xml";
     private bool isBusy;
     private bool selectedMacroHasBlockingErrors;
@@ -25,6 +32,8 @@ public sealed class WorkspaceViewModel : ObservableObject
     private string statusText = "拖入宏文件或选择文件夹开始转换";
     private DiagnosticSeverityOption selectedDiagnosticSeverity;
     private DiagnosticScopeOption selectedDiagnosticScope;
+    private string delayMillisecondsText = string.Empty;
+    private string delayScalePercentText = "100";
 
     public WorkspaceViewModel(
         MacroImportService importService,
@@ -80,8 +89,36 @@ public sealed class WorkspaceViewModel : ObservableObject
                 OnPropertyChanged(nameof(CanExport));
                 OnPropertyChanged(nameof(SelectedMacroSummary));
                 OnPropertyChanged(nameof(ExportAvailabilityText));
+                NotifyEditingState();
             }
         }
+    }
+
+    public MacroEventRow? SelectedEvent
+    {
+        get => selectedEvent;
+        set
+        {
+            if (SetProperty(ref selectedEvent, value))
+            {
+                DelayMillisecondsText = value?.Event is DelayMacroEvent delay
+                    ? delay.Milliseconds.ToString(CultureInfo.InvariantCulture)
+                    : string.Empty;
+                OnPropertyChanged(nameof(CanUpdateSelectedDelay));
+            }
+        }
+    }
+
+    public string DelayMillisecondsText
+    {
+        get => delayMillisecondsText;
+        set => SetProperty(ref delayMillisecondsText, value ?? string.Empty);
+    }
+
+    public string DelayScalePercentText
+    {
+        get => delayScalePercentText;
+        set => SetProperty(ref delayScalePercentText, value ?? string.Empty);
     }
 
     public string TargetFormatId
@@ -136,6 +173,7 @@ public sealed class WorkspaceViewModel : ObservableObject
                 OnPropertyChanged(nameof(CanImport));
                 OnPropertyChanged(nameof(CanExport));
                 OnPropertyChanged(nameof(ExportAvailabilityText));
+                NotifyEditingState();
             }
         }
     }
@@ -145,6 +183,24 @@ public sealed class WorkspaceViewModel : ObservableObject
     public bool CanImport => !IsBusy;
 
     public bool CanExport => SelectedMacro is not null && !selectedMacroHasBlockingErrors && !IsBusy;
+
+    public bool CanUpdateSelectedDelay =>
+        !IsBusy && SelectedMacro is not null && SelectedEvent?.Event is DelayMacroEvent;
+
+    public bool CanScaleDelays =>
+        !IsBusy && SelectedMacro?.Events.Any(item => item is DelayMacroEvent or RandomDelayMacroEvent) == true;
+
+    public bool CanUndo => !IsBusy && undoHistory.Count > 0;
+
+    public bool CanRedo => !IsBusy && redoHistory.Count > 0;
+
+    public string UndoAvailabilityText => undoHistory.Count == 0
+        ? "没有可撤销的编辑"
+        : $"撤销：{undoHistory[^1].Description}";
+
+    public string RedoAvailabilityText => redoHistory.Count == 0
+        ? "没有可重做的编辑"
+        : $"重做：{redoHistory[^1].Description}";
 
     public double ProgressPercent
     {
@@ -204,6 +260,9 @@ public sealed class WorkspaceViewModel : ObservableObject
         IsBusy = true;
         ProgressPercent = 0;
         StatusText = "正在读取宏文件…";
+        ClearEditHistory();
+        evaluationDiagnostics.Clear();
+        SelectedMacro = null;
         Macros.Clear();
         Events.Clear();
         Diagnostics.Clear();
@@ -284,7 +343,7 @@ public sealed class WorkspaceViewModel : ObservableObject
             if (document.Events.OfType<MacroReferenceEvent>().Any())
             {
                 var resolution = resolver.Resolve(document, Macros);
-                AppendDiagnostics(resolution.Diagnostics);
+                AppendDiagnostics(WithMacroContext(resolution.Diagnostics, document.Name));
                 if (resolution.Document is null)
                 {
                     StatusText = "嵌套宏展开失败";
@@ -295,7 +354,7 @@ public sealed class WorkspaceViewModel : ObservableObject
             }
 
             var validation = validator.Validate(document);
-            AppendDiagnostics(validation.Diagnostics);
+            AppendDiagnostics(WithMacroContext(validation.Diagnostics, document.Name));
             if (validation.HasErrors)
             {
                 StatusText = "宏包含阻断错误，无法导出";
@@ -334,14 +393,199 @@ public sealed class WorkspaceViewModel : ObservableObject
 
     public void Cancel() => operationCancellation?.Cancel();
 
+    public bool UpdateSelectedDelay()
+    {
+        if (IsBusy)
+        {
+            StatusText = "操作进行中，暂时不能编辑时间线";
+            return false;
+        }
+
+        if (SelectedMacro is null || SelectedEvent is null ||
+            SelectedEvent.EventIndex < 0 || SelectedEvent.EventIndex >= SelectedMacro.Events.Count ||
+            SelectedMacro.Events[SelectedEvent.EventIndex] is not DelayMacroEvent delay)
+        {
+            StatusText = "请先在时间线中选择一个固定延时事件";
+            return false;
+        }
+
+        if (!long.TryParse(
+                DelayMillisecondsText,
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out var milliseconds) || milliseconds < 0)
+        {
+            StatusText = "延时必须是大于或等于 0 的整数毫秒";
+            return false;
+        }
+
+        if (delay.Milliseconds == milliseconds)
+        {
+            StatusText = "延时数值没有变化";
+            return false;
+        }
+
+        var events = SelectedMacro.Events.ToArray();
+        events[SelectedEvent.EventIndex] = delay with { Milliseconds = milliseconds };
+        return ApplyMacroEdit(
+            SelectedMacro,
+            events,
+            SelectedEvent.EventIndex,
+            $"事件 {delay.Sequence} 延时改为 {milliseconds} ms");
+    }
+
+    public bool ScaleAllDelays()
+    {
+        if (IsBusy)
+        {
+            StatusText = "操作进行中，暂时不能编辑时间线";
+            return false;
+        }
+
+        if (SelectedMacro is null)
+        {
+            StatusText = "请先选择要编辑的宏";
+            return false;
+        }
+
+        const NumberStyles styles = NumberStyles.AllowLeadingSign |
+                                    NumberStyles.AllowDecimalPoint |
+                                    NumberStyles.AllowLeadingWhite |
+                                    NumberStyles.AllowTrailingWhite;
+        if (!decimal.TryParse(
+                DelayScalePercentText,
+                styles,
+                CultureInfo.InvariantCulture,
+                out var percentage) || percentage < 0)
+        {
+            StatusText = "缩放比例必须是大于或等于 0 的百分比，例如 125 或 50.5";
+            return false;
+        }
+
+        var events = SelectedMacro.Events.ToArray();
+        var foundDelay = false;
+        var changed = false;
+        for (var index = 0; index < events.Length; index++)
+        {
+            switch (events[index])
+            {
+                case DelayMacroEvent delay:
+                    foundDelay = true;
+                    if (!TryScaleDelay(delay.Milliseconds, percentage, out var scaledDelay))
+                    {
+                        StatusText = "宏包含无效延时，或缩放结果超出 64 位毫秒范围";
+                        return false;
+                    }
+
+                    if (scaledDelay != delay.Milliseconds)
+                    {
+                        events[index] = delay with { Milliseconds = scaledDelay };
+                        changed = true;
+                    }
+
+                    break;
+                case RandomDelayMacroEvent randomDelay:
+                    foundDelay = true;
+                    if (randomDelay.MinimumMilliseconds > randomDelay.MaximumMilliseconds ||
+                        !TryScaleDelay(randomDelay.MinimumMilliseconds, percentage, out var scaledMinimum) ||
+                        !TryScaleDelay(randomDelay.MaximumMilliseconds, percentage, out var scaledMaximum))
+                    {
+                        StatusText = "宏包含无效随机延时，或缩放结果超出 64 位毫秒范围";
+                        return false;
+                    }
+
+                    if (scaledMinimum != randomDelay.MinimumMilliseconds ||
+                        scaledMaximum != randomDelay.MaximumMilliseconds)
+                    {
+                        events[index] = randomDelay with
+                        {
+                            MinimumMilliseconds = scaledMinimum,
+                            MaximumMilliseconds = scaledMaximum,
+                        };
+                        changed = true;
+                    }
+
+                    break;
+            }
+        }
+
+        if (!foundDelay)
+        {
+            StatusText = "当前宏没有可缩放的延时事件";
+            return false;
+        }
+
+        if (!changed)
+        {
+            StatusText = "缩放后延时数值没有变化";
+            return false;
+        }
+
+        return ApplyMacroEdit(
+            SelectedMacro,
+            events,
+            SelectedEvent?.EventIndex,
+            $"全部延时缩放为 {percentage.ToString(CultureInfo.InvariantCulture)}%");
+    }
+
+    public bool Undo()
+    {
+        if (!CanUndo)
+        {
+            StatusText = IsBusy ? "操作进行中，暂时不能撤销" : "没有可撤销的编辑";
+            return false;
+        }
+
+        var entry = undoHistory[^1];
+        if (!ReplaceMacro(entry.Before, entry.SelectedEventIndex, entry.After))
+        {
+            ClearEditHistory();
+            StatusText = "撤销目标已不在工作区，编辑历史已清空";
+            return false;
+        }
+
+        undoHistory.RemoveAt(undoHistory.Count - 1);
+        redoHistory.Add(entry);
+        StatusText = $"已撤销：{entry.Description}";
+        NotifyEditingState();
+        return true;
+    }
+
+    public bool Redo()
+    {
+        if (!CanRedo)
+        {
+            StatusText = IsBusy ? "操作进行中，暂时不能重做" : "没有可重做的编辑";
+            return false;
+        }
+
+        var entry = redoHistory[^1];
+        if (!ReplaceMacro(entry.After, entry.SelectedEventIndex, entry.Before))
+        {
+            ClearEditHistory();
+            StatusText = "重做目标已不在工作区，编辑历史已清空";
+            return false;
+        }
+
+        redoHistory.RemoveAt(redoHistory.Count - 1);
+        undoHistory.Add(entry);
+        StatusText = $"已重做：{entry.Description}";
+        NotifyEditingState();
+        return true;
+    }
+
     private void RebuildEventRows()
     {
+        SelectedEvent = null;
         Events.Clear();
         if (SelectedMacro is not null)
         {
-            foreach (var macroEvent in SelectedMacro.Events.OrderBy(item => item.Sequence))
+            foreach (var item in SelectedMacro.Events
+                         .Select((macroEvent, index) => (MacroEvent: macroEvent, Index: index))
+                         .OrderBy(item => item.MacroEvent.Sequence)
+                         .ThenBy(item => item.Index))
             {
-                Events.Add(CreateEventRow(macroEvent));
+                Events.Add(CreateEventRow(item.Index, item.MacroEvent));
             }
         }
 
@@ -357,13 +601,17 @@ public sealed class WorkspaceViewModel : ObservableObject
         }
 
         var document = SelectedMacro;
+        var currentMacro = document;
+        var currentMacroName = document.Name;
+        var diagnostics = new List<ConversionDiagnostic>();
         if (document.Events.OfType<MacroReferenceEvent>().Any())
         {
             var resolution = resolver.Resolve(document, Macros);
-            AppendDiagnostics(WithMacroContext(resolution.Diagnostics, document.Name));
+            diagnostics.AddRange(WithMacroContext(resolution.Diagnostics, currentMacroName));
             if (resolution.Document is null || resolution.Diagnostics.Any(item => item.Severity == DiagnosticSeverity.Error))
             {
                 selectedMacroHasBlockingErrors = true;
+                ReplaceEvaluationDiagnostics(currentMacro, diagnostics);
                 return;
             }
 
@@ -371,8 +619,9 @@ public sealed class WorkspaceViewModel : ObservableObject
         }
 
         var validation = validator.Validate(document);
-        AppendDiagnostics(WithMacroContext(validation.Diagnostics, document.Name));
+        diagnostics.AddRange(WithMacroContext(validation.Diagnostics, currentMacroName));
         selectedMacroHasBlockingErrors = validation.HasErrors;
+        ReplaceEvaluationDiagnostics(currentMacro, diagnostics);
     }
 
     private static IEnumerable<ConversionDiagnostic> WithMacroContext(
@@ -382,18 +631,172 @@ public sealed class WorkspaceViewModel : ObservableObject
             ? item with { SourceContext = macroName }
             : item);
 
-    private static MacroEventRow CreateEventRow(MacroEvent macroEvent) => macroEvent switch
+    private static MacroEventRow CreateEventRow(int eventIndex, MacroEvent macroEvent) => macroEvent switch
     {
-        DelayMacroEvent delay => new(delay.Sequence, "延时", $"{delay.Milliseconds} ms"),
-        RandomDelayMacroEvent delay => new(delay.Sequence, "随机延时", $"{delay.MinimumMilliseconds}–{delay.MaximumMilliseconds} ms"),
-        KeyMacroEvent key => new(key.Sequence, "键盘", $"{key.Transition} · VK {key.VirtualKey}{(key.IsExtended ? " · 扩展" : string.Empty)}"),
-        MouseMacroEvent mouse => new(mouse.Sequence, "鼠标", $"{mouse.Transition} · {mouse.Button}"),
-        ScanCodeMacroEvent scan => new(scan.Sequence, "扫描码", $"{scan.Transition} · {scan.ScanCode}{(scan.IsExtended ? " · 扩展" : string.Empty)}"),
-        XmbcCommandMacroEvent command => new(command.Sequence, "XMBC 命令", $"{command.Category} · {command.RawTag}"),
-        MacroReferenceEvent reference => new(reference.Sequence, "嵌套宏", reference.TargetName ?? reference.TargetGuid?.ToString() ?? $"索引 {reference.TargetIndex}"),
-        UnknownMacroEvent unknown => new(unknown.Sequence, "未知", $"{unknown.SourceType} · {unknown.RawPayload}"),
-        _ => new(macroEvent.Sequence, "其他", string.Empty),
+        DelayMacroEvent delay => new(eventIndex, delay, "延时", $"{delay.Milliseconds} ms"),
+        RandomDelayMacroEvent delay => new(eventIndex, delay, "随机延时", $"{delay.MinimumMilliseconds}–{delay.MaximumMilliseconds} ms"),
+        KeyMacroEvent key => new(eventIndex, key, "键盘", $"{key.Transition} · VK {key.VirtualKey}{(key.IsExtended ? " · 扩展" : string.Empty)}"),
+        MouseMacroEvent mouse => new(eventIndex, mouse, "鼠标", $"{mouse.Transition} · {mouse.Button}"),
+        ScanCodeMacroEvent scan => new(eventIndex, scan, "扫描码", $"{scan.Transition} · {scan.ScanCode}{(scan.IsExtended ? " · 扩展" : string.Empty)}"),
+        XmbcCommandMacroEvent command => new(eventIndex, command, "XMBC 命令", $"{command.Category} · {command.RawTag}"),
+        MacroReferenceEvent reference => new(eventIndex, reference, "嵌套宏", reference.TargetName ?? reference.TargetGuid?.ToString() ?? $"索引 {reference.TargetIndex}"),
+        UnknownMacroEvent unknown => new(eventIndex, unknown, "未知", $"{unknown.SourceType} · {unknown.RawPayload}"),
+        _ => new(eventIndex, macroEvent, "其他", string.Empty),
     };
+
+    private bool ApplyMacroEdit(
+        MacroDocument before,
+        MacroEvent[] events,
+        int? selectedEventIndex,
+        string description)
+    {
+        if (before.Events.SequenceEqual(events))
+        {
+            return false;
+        }
+
+        var after = before with { Events = Array.AsReadOnly(events) };
+        var entry = new MacroEditHistoryEntry(before, after, selectedEventIndex, description);
+        undoHistory.Add(entry);
+        if (undoHistory.Count > MaximumEditHistoryEntries)
+        {
+            undoHistory.RemoveAt(0);
+        }
+
+        redoHistory.Clear();
+        if (!ReplaceMacro(after, selectedEventIndex, before))
+        {
+            undoHistory.RemoveAt(undoHistory.Count - 1);
+            StatusText = "编辑目标已不在工作区，未应用更改";
+            NotifyEditingState();
+            return false;
+        }
+
+        StatusText = $"已完成：{description}";
+        NotifyEditingState();
+        return true;
+    }
+
+    private bool ReplaceMacro(
+        MacroDocument document,
+        int? selectedEventIndex,
+        MacroDocument expectedCurrent)
+    {
+        var macroIndex = -1;
+        for (var index = 0; index < Macros.Count; index++)
+        {
+            if (ReferenceEquals(Macros[index], expectedCurrent))
+            {
+                macroIndex = index;
+                break;
+            }
+        }
+
+        if (macroIndex < 0)
+        {
+            var matchingIndexes = Enumerable.Range(0, Macros.Count)
+                .Where(index => Macros[index].Id == expectedCurrent.Id)
+                .Take(2)
+                .ToArray();
+            if (matchingIndexes.Length == 1)
+            {
+                macroIndex = matchingIndexes[0];
+            }
+        }
+
+        if (macroIndex < 0)
+        {
+            return false;
+        }
+
+        RemoveEvaluationDiagnostics(expectedCurrent);
+        Macros[macroIndex] = document;
+        SelectedMacro = document;
+        SelectedEvent = selectedEventIndex is null
+            ? null
+            : Events.FirstOrDefault(item => item.EventIndex == selectedEventIndex.Value);
+        return true;
+    }
+
+    private static bool TryScaleDelay(long milliseconds, decimal percentage, out long result)
+    {
+        result = 0;
+        if (milliseconds < 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            var scaled = milliseconds * percentage / 100m;
+            if (scaled > long.MaxValue)
+            {
+                return false;
+            }
+
+            result = decimal.ToInt64(decimal.Round(scaled, 0, MidpointRounding.AwayFromZero));
+            return true;
+        }
+        catch (OverflowException)
+        {
+            return false;
+        }
+    }
+
+    private void ReplaceEvaluationDiagnostics(
+        MacroDocument macro,
+        IEnumerable<ConversionDiagnostic> diagnostics)
+    {
+        RemoveEvaluationDiagnostics(macro);
+
+        var ownedDiagnostics = new List<ConversionDiagnostic>();
+        foreach (var diagnostic in diagnostics)
+        {
+            if (!Diagnostics.Contains(diagnostic))
+            {
+                Diagnostics.Add(diagnostic);
+                ownedDiagnostics.Add(diagnostic);
+            }
+        }
+
+        if (ownedDiagnostics.Count > 0)
+        {
+            evaluationDiagnostics[macro] = ownedDiagnostics;
+        }
+    }
+
+    private void RemoveEvaluationDiagnostics(MacroDocument macro)
+    {
+        if (!evaluationDiagnostics.Remove(macro, out var previousDiagnostics))
+        {
+            return;
+        }
+
+        for (var diagnosticIndex = Diagnostics.Count - 1; diagnosticIndex >= 0; diagnosticIndex--)
+        {
+            if (previousDiagnostics.Any(previous => ReferenceEquals(previous, Diagnostics[diagnosticIndex])))
+            {
+                Diagnostics.RemoveAt(diagnosticIndex);
+            }
+        }
+    }
+
+    private void ClearEditHistory()
+    {
+        undoHistory.Clear();
+        redoHistory.Clear();
+        NotifyEditingState();
+    }
+
+    private void NotifyEditingState()
+    {
+        OnPropertyChanged(nameof(CanUpdateSelectedDelay));
+        OnPropertyChanged(nameof(CanScaleDelays));
+        OnPropertyChanged(nameof(CanUndo));
+        OnPropertyChanged(nameof(CanRedo));
+        OnPropertyChanged(nameof(UndoAvailabilityText));
+        OnPropertyChanged(nameof(RedoAvailabilityText));
+    }
 
     private void AppendDiagnostics(IEnumerable<ConversionDiagnostic> diagnostics)
     {
@@ -471,4 +874,10 @@ public sealed class WorkspaceViewModel : ObservableObject
         OnPropertyChanged(nameof(CanExport));
         OnPropertyChanged(nameof(ExportAvailabilityText));
     }
+
+    private sealed record MacroEditHistoryEntry(
+        MacroDocument Before,
+        MacroDocument After,
+        int? SelectedEventIndex,
+        string Description);
 }

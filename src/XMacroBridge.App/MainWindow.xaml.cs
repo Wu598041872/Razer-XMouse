@@ -81,6 +81,14 @@ public partial class MainWindow : Window
 
     private void Cancel_Click(object sender, RoutedEventArgs e) => viewModel.Cancel();
 
+    private void ApplyDelay_Click(object sender, RoutedEventArgs e) => viewModel.UpdateSelectedDelay();
+
+    private void ScaleDelays_Click(object sender, RoutedEventArgs e) => viewModel.ScaleAllDelays();
+
+    private void Undo_Click(object sender, RoutedEventArgs e) => viewModel.Undo();
+
+    private void Redo_Click(object sender, RoutedEventArgs e) => viewModel.Redo();
+
     private void Window_DragOver(object sender, DragEventArgs e)
     {
         e.Effects = !viewModel.CanImport || !e.Data.GetDataPresent(DataFormats.FileDrop)

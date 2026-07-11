@@ -90,6 +90,15 @@ internal static class Program
             var workspaceScroll = Find<ScrollViewer>(window, "WorkspaceScrollViewer");
             var diagnosticScroll = Find<ScrollViewer>(window, "DiagnosticScrollViewer");
             var statusText = Find<TextBlock>(window, "StatusTextBlock");
+            var delayMilliseconds = Find<TextBox>(window, "DelayMillisecondsTextBox");
+            var applyDelay = Find<Button>(window, "ApplyDelayButton");
+            var delayScalePercent = Find<TextBox>(window, "DelayScalePercentTextBox");
+            var scaleDelays = Find<Button>(window, "ScaleDelaysButton");
+            var undo = Find<Button>(window, "UndoButton");
+            var redo = Find<Button>(window, "RedoButton");
+
+            viewModel.SelectedEvent = viewModel.Events.FirstOrDefault(item => item.IsFixedDelay)
+                ?? throw new InvalidOperationException("The selected smoke-test macro has no fixed delay to edit.");
 
             window.UpdateLayout();
 
@@ -101,6 +110,9 @@ internal static class Program
             Assert(severityFilter.Items.Count == 4, "Severity filter options are incomplete.");
             Assert(scopeFilter.Items.Count >= 2, "Source filter options were not populated.");
             Assert(diagnosticGroups.Items.Count >= 1, "Diagnostic grouping binding is empty.");
+            Assert(applyDelay.IsEnabled, "Selected fixed delay should enable the apply action.");
+            Assert(scaleDelays.IsEnabled, "A macro with delays should enable batch scaling.");
+            Assert(!undo.IsEnabled && !redo.IsEnabled, "A new workspace should have empty edit history.");
             VerifyAccessibilityNames(
                 macroList,
                 eventTimeline,
@@ -114,7 +126,13 @@ internal static class Program
                 progress,
                 workspaceScroll,
                 diagnosticScroll,
-                statusText);
+                statusText,
+                delayMilliseconds,
+                applyDelay,
+                delayScalePercent,
+                scaleDelays,
+                undo,
+                redo);
             VerifyDpiAwareness(window);
             VerifyCompactLayout(workspaceScroll);
             VerifyKeyboardContract(
@@ -124,10 +142,17 @@ internal static class Program
                 targetFormat,
                 exportButton,
                 eventTimeline,
+                delayMilliseconds,
+                applyDelay,
+                delayScalePercent,
+                scaleDelays,
+                undo,
+                redo,
                 severityFilter,
                 scopeFilter,
                 diagnosticScroll,
                 cancelButton);
+            VerifyEditingBindings(viewModel, window, eventTimeline, delayMilliseconds, undo, redo);
             VerifyGeneratedAccessibility(viewModel, macroList, eventTimeline, diagnosticGroups, statusText);
             VerifyTimelineVirtualization(viewModel, eventTimeline);
             VerifyTheme(application, expectedTheme);
@@ -154,7 +179,7 @@ internal static class Program
                 $"{element.Name} does not expose an accessibility name.");
         }
 
-        foreach (var control in elements.OfType<Control>().Where(item => item is Button or ComboBox))
+        foreach (var control in elements.OfType<Control>().Where(item => item is Button or ComboBox or TextBox))
         {
             Assert(control.Focusable && control.IsTabStop, $"{control.Name} is not keyboard focusable.");
         }
@@ -217,6 +242,37 @@ internal static class Program
 
         VerifyFocusRing(controls.OfType<Button>().Single(item => item.Name == "ImportFolderButton"), "FocusRingBrush");
         VerifyFocusRing(controls.OfType<Button>().Single(item => item.Name == "ExportButton"), "PrimaryFocusRingBrush");
+    }
+
+    private static void VerifyEditingBindings(
+        WorkspaceViewModel viewModel,
+        Window window,
+        DataGrid eventTimeline,
+        TextBox delayMilliseconds,
+        Button undo,
+        Button redo)
+    {
+        var selectedRow = viewModel.SelectedEvent
+            ?? throw new InvalidOperationException("Timeline selection binding is empty.");
+        var originalDelay = ((DelayMacroEvent)selectedRow.Event).Milliseconds;
+        Assert(
+            delayMilliseconds.Text == originalDelay.ToString(),
+            "Selected delay value was not populated into the editor.");
+
+        viewModel.DelayMillisecondsText = (originalDelay + 1).ToString();
+        Assert(viewModel.UpdateSelectedDelay(), "Smoke-test delay edit failed.");
+        window.UpdateLayout();
+        Assert(undo.IsEnabled && !redo.IsEnabled, "Edit history buttons did not refresh after an edit.");
+        Assert(
+            eventTimeline.SelectedItem is MacroEventRow { IsFixedDelay: true },
+            "Timeline selection was not restored after immutable macro replacement.");
+
+        Assert(viewModel.Undo(), "Smoke-test undo failed.");
+        window.UpdateLayout();
+        Assert(redo.IsEnabled, "Redo button did not enable after undo.");
+        Assert(
+            viewModel.SelectedMacro!.Events.OfType<DelayMacroEvent>().Any(item => item.Milliseconds == originalDelay),
+            "Undo did not restore the original delay in the WPF workspace.");
     }
 
     private static void VerifyFocusRing(Button button, string expectedBrushKey)

@@ -23,6 +23,12 @@ var tests = new (string Name, Action Run)[]
     ("Synapse4 package imports and flattens", Synapse4PackageImportsAndFlattens),
     ("Synapse4 invalid payload is diagnosed", Synapse4InvalidPayloadIsDiagnosed),
     ("Synapse4 malformed event is preserved", Synapse4MalformedEventIsPreserved),
+    ("XMBC settings extract action 28 macros", XmbcSettingsExtractAction28Macros),
+    ("XMBC settings reject DTD", XmbcSettingsRejectDtd),
+    ("XMBC text export round trips", XmbcTextExportRoundTrips),
+    ("XMBC text export rejects unsupported key", XmbcTextExportRejectsUnsupportedKey),
+    ("Razer XML export round trips", RazerXmlExportRoundTrips),
+    ("Razer XML export rejects unsupported mouse", RazerXmlExportRejectsUnsupportedMouse),
 };
 
 var failures = new List<string>();
@@ -227,6 +233,108 @@ static void Synapse4MalformedEventIsPreserved()
     Assert(imported.Documents[0].Events.OfType<UnknownMacroEvent>().Any(), "Malformed event must remain visible.");
     Assert(imported.Diagnostics.Any(item => item.Code == "SYNAPSE4_EVENT_INVALID"), "Malformed event diagnostic is absent.");
 }
+
+static void XmbcSettingsExtractAction28Macros()
+{
+    var fixturePath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "settings-action28.xml");
+    using var stream = File.OpenRead(fixturePath);
+    var imported = new XmbcSettingsImporter().ImportAsync(stream, fixturePath).GetAwaiter().GetResult();
+
+    Assert(imported.Documents.Count == 4, "Expected four action=28 mappings.");
+    Assert(imported.Documents.Any(item => item.Name.Contains("默认配置 / 第 1 层：默认层 / Middle / 基础宏", StringComparison.Ordinal)), "Default layer name is incorrect.");
+    Assert(imported.Documents.Any(item => item.Name.Contains("和弦 Middle+Left", StringComparison.Ordinal)), "Chord name is incorrect.");
+    Assert(imported.Documents.Any(item => item.Name.Contains("第 2 层：第二层 / XLeft", StringComparison.Ordinal)), "Second layer name is incorrect.");
+    var applicationMacro = imported.Documents.Single(item => item.Name.Contains("演示应用 (demo.exe)", StringComparison.Ordinal));
+    Assert(applicationMacro.Metadata?["xmbc.application"] == "demo.exe", "Application metadata is missing.");
+    Assert(applicationMacro.Metadata?["xmbc.keyaction"] == "1", "keyaction metadata is missing.");
+    Assert(imported.Documents.All(item => !new MacroValidator().Validate(item).HasErrors), "Fixture macros should validate.");
+}
+
+static void XmbcSettingsRejectDtd()
+{
+    const string xml = "<!DOCTYPE root [<!ENTITY xxe SYSTEM 'file:///C:/Windows/win.ini'>]><root><version major='2'/><Default><Left action='28' keys='&xxe;'/></Default></root>";
+    using var stream = new MemoryStream(Encoding.UTF8.GetBytes(xml));
+    var imported = new XmbcSettingsImporter().ImportAsync(stream, "unsafe.xmbcp").GetAwaiter().GetResult();
+
+    Assert(imported.Documents.Count == 0, "DTD input must not create XMBC macros.");
+    Assert(imported.Diagnostics.Any(item => item.Code == "XMBC_SETTINGS_INVALID"), "DTD rejection diagnostic is absent.");
+}
+
+static void XmbcTextExportRoundTrips()
+{
+    var original = CreateDocument(
+        new KeyMacroEvent(0, 65, InputTransition.Down),
+        new DelayMacroEvent(1, 50),
+        new KeyMacroEvent(2, 65, InputTransition.Up),
+        new MouseMacroEvent(3, MouseButton.Left, InputTransition.Down),
+        new DelayMacroEvent(4, 10),
+        new MouseMacroEvent(5, MouseButton.Left, InputTransition.Up));
+    using var output = new MemoryStream();
+    var exportDiagnostics = new XmbcMacroTextExporter().ExportAsync(original, output).GetAwaiter().GetResult();
+    Assert(!exportDiagnostics.Any(item => item.Severity == XMacroBridge.Core.Diagnostics.DiagnosticSeverity.Error), "XMBC export should succeed.");
+
+    output.Position = 0;
+    var imported = new XmbcMacroTextImporter().ImportAsync(output, "roundtrip.txt").GetAwaiter().GetResult();
+    Assert(EventSignatures(imported.Documents.Single()).SequenceEqual(EventSignatures(original)), "XMBC round trip changed events.");
+}
+
+static void XmbcTextExportRejectsUnsupportedKey()
+{
+    var document = CreateDocument(
+        new KeyMacroEvent(0, 0x70, InputTransition.Down, "F1"),
+        new KeyMacroEvent(1, 0x70, InputTransition.Up, "F1"));
+    using var output = new MemoryStream();
+    var diagnostics = new XmbcMacroTextExporter().ExportAsync(document, output).GetAwaiter().GetResult();
+
+    Assert(diagnostics.Any(item => item.Code == "XMBC_EXPORT_KEY_UNSUPPORTED"), "Unsupported key diagnostic is absent.");
+    Assert(output.Length == 0, "Failed export must not write partial output.");
+}
+
+static void RazerXmlExportRoundTrips()
+{
+    var original = new MacroDocument(
+        Guid.NewGuid(),
+        "往返测试",
+        [
+            new KeyMacroEvent(0, 65, InputTransition.Down),
+            new DelayMacroEvent(1, 50),
+            new KeyMacroEvent(2, 65, InputTransition.Up),
+            new MouseMacroEvent(3, MouseButton.Right, InputTransition.Down),
+            new DelayMacroEvent(4, 10),
+            new MouseMacroEvent(5, MouseButton.Right, InputTransition.Up),
+        ]);
+    using var output = new MemoryStream();
+    var exportDiagnostics = new RazerMacroXmlExporter().ExportAsync(original, output).GetAwaiter().GetResult();
+    Assert(!exportDiagnostics.Any(item => item.Severity == XMacroBridge.Core.Diagnostics.DiagnosticSeverity.Error), "Razer export should succeed.");
+
+    output.Position = 0;
+    var imported = new RazerMacroXmlImporter().ImportAsync(output, "roundtrip.xml").GetAwaiter().GetResult();
+    Assert(imported.Documents.Single().Name == "往返测试", "Razer macro name changed.");
+    Assert(EventSignatures(imported.Documents.Single()).SequenceEqual(EventSignatures(original)), "Razer round trip changed events.");
+}
+
+static void RazerXmlExportRejectsUnsupportedMouse()
+{
+    var document = CreateDocument(
+        new MouseMacroEvent(0, MouseButton.Middle, InputTransition.Down),
+        new MouseMacroEvent(1, MouseButton.Middle, InputTransition.Up));
+    using var output = new MemoryStream();
+    var diagnostics = new RazerMacroXmlExporter().ExportAsync(document, output).GetAwaiter().GetResult();
+
+    Assert(diagnostics.Any(item => item.Code == "RAZER_EXPORT_MOUSE_UNSUPPORTED"), "Unsupported Razer mouse diagnostic is absent.");
+    Assert(output.Length == 0, "Failed Razer export must not write partial output.");
+}
+
+static IEnumerable<string> EventSignatures(MacroDocument document) =>
+    document.Events.OrderBy(item => item.Sequence).Select(item => item switch
+    {
+        DelayMacroEvent delay => $"delay:{delay.Milliseconds}",
+        KeyMacroEvent key => $"key:{key.VirtualKey}:{key.Transition}",
+        MouseMacroEvent mouse => $"mouse:{mouse.Button}:{mouse.Transition}",
+        MacroReferenceEvent reference => $"reference:{reference.TargetGuid}:{reference.TargetIndex}",
+        UnknownMacroEvent unknown => $"unknown:{unknown.SourceType}:{unknown.RawPayload}",
+        _ => item.GetType().Name,
+    });
 
 static MacroDocument CreateDocument(params MacroEvent[] events) =>
     new(Guid.NewGuid(), "Test macro", events);

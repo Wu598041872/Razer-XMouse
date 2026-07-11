@@ -5,4 +5,5 @@ public sealed record MacroDocument(
     string Name,
     IReadOnlyList<MacroEvent> Events,
     string? SourceFormat = null,
-    string? SourcePath = null);
+    string? SourcePath = null,
+    IReadOnlyDictionary<string, string>? Metadata = null);

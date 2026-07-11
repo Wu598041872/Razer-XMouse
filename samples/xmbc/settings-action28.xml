@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <version major="2" minor="20" revision="5" build="0" />
+  <Layers Number="2" />
+  <Default>
+    <Layer name="默认层" />
+    <Middle action="28" keys="{PRESS}a{WAITMS:50}{RELEASE}a" keyaction="1" keyrepeat="0" active="true" blockmouse="true" randomisedelay="false" desc="基础宏">
+      <chords>
+        <Left action="28" keys="{LMB}" keyaction="1" keyrepeat="0" active="false" blockmouse="true" randomisedelay="false" desc="和弦宏" />
+      </chords>
+    </Middle>
+    <Layer1>
+      <Layer name="第二层" />
+      <XLeft action="28" keys="b" keyaction="1" keyrepeat="0" active="true" blockmouse="true" randomisedelay="false" desc="" />
+    </Layer1>
+  </Default>
+  <Applications>
+    <Application Name="demo.exe" Description="演示应用" Enabled="true">
+      <LayerNames layer1="应用主层" layer2="" />
+      <Right action="28" keys="{RMB}" keyaction="1" keyrepeat="0" active="true" blockmouse="true" randomisedelay="false" desc="应用宏" />
+    </Application>
+  </Applications>
+</root>

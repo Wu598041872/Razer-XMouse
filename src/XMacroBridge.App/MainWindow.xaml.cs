@@ -103,6 +103,22 @@ public partial class MainWindow : Window
 
     private void Redo_Click(object sender, RoutedEventArgs e) => viewModel.Redo();
 
+    private void FindPreviousEvent_Click(object sender, RoutedEventArgs e)
+    {
+        if (viewModel.FindPreviousEvent())
+        {
+            EventTimeline.ScrollIntoView(viewModel.SelectedEvent);
+        }
+    }
+
+    private void FindNextEvent_Click(object sender, RoutedEventArgs e)
+    {
+        if (viewModel.FindNextEvent())
+        {
+            EventTimeline.ScrollIntoView(viewModel.SelectedEvent);
+        }
+    }
+
     private void Window_DragOver(object sender, DragEventArgs e)
     {
         e.Effects = !viewModel.CanImport || !e.Data.GetDataPresent(DataFormats.FileDrop)

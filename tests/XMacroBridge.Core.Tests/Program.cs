@@ -82,6 +82,7 @@ var tests = new (string Name, Action Run)[]
     ("Workspace inserts parameterized keyboard events", WorkspaceInsertsParameterizedKeyboardEvents),
     ("Workspace rejects invalid virtual-key input", WorkspaceRejectsInvalidVirtualKeyInput),
     ("Workspace inserts parameterized mouse events", WorkspaceInsertsParameterizedMouseEvents),
+    ("Workspace searches timeline events and cycles selection", WorkspaceSearchesTimelineEventsAndCyclesSelection),
 };
 
 var failures = new List<string>();
@@ -1034,6 +1035,51 @@ static void WorkspaceImportsFixturesAndRefreshesEventRows()
     {
         Directory.Delete(tempDirectory, true);
     }
+}
+
+static void WorkspaceSearchesTimelineEventsAndCyclesSelection()
+{
+    var document = CreateNamedDocument(
+        "搜索基线",
+        new KeyMacroEvent(0, 65, InputTransition.Down),
+        new DelayMacroEvent(1, 25),
+        new KeyMacroEvent(2, 65, InputTransition.Up),
+        new MouseMacroEvent(3, MouseButton.Right, InputTransition.Down));
+    var viewModel = WorkspaceViewModel.CreateDefault();
+    viewModel.Macros.Add(document);
+    viewModel.SelectedMacro = document;
+
+    Assert(viewModel.EventSearchResultText == "未搜索", "Empty search should expose the idle summary.");
+    viewModel.EventSearchText = "键盘";
+    Assert(viewModel.EventSearchResultText == "0 / 2", "Search result count is incorrect before navigation.");
+    Assert(viewModel.CanFindPreviousEvent && viewModel.CanFindNextEvent, "Matching search should enable both navigation directions.");
+    Assert(!viewModel.CanUndo, "Searching must not enter the edit history.");
+
+    Assert(viewModel.FindNextEvent(), "First next-result navigation should succeed.");
+    Assert(viewModel.SelectedEvent is { DisplayIndex: 0, Type: "键盘" }, "Next-result navigation did not select the first match.");
+    Assert(viewModel.EventSearchResultText == "1 / 2", "Current search position is incorrect after first navigation.");
+    Assert(viewModel.FindNextEvent(), "Second next-result navigation should succeed.");
+    Assert(viewModel.SelectedEvent is { DisplayIndex: 2, Type: "键盘" }, "Next-result navigation did not select the second match.");
+    Assert(viewModel.FindNextEvent() && viewModel.SelectedEvent?.DisplayIndex == 0, "Next-result navigation did not wrap to the first match.");
+    Assert(viewModel.FindPreviousEvent() && viewModel.SelectedEvent?.DisplayIndex == 2, "Previous-result navigation did not wrap to the final match.");
+
+    viewModel.EventSearchText = "vk 65";
+    Assert(viewModel.EventSearchResultText == "2 / 2", "Search should be case-insensitive and preserve a matching selection.");
+    viewModel.EventSearchText = "1";
+    Assert(viewModel.EventSearchResultText == "0 / 1", "Sequence search should match the visible sequence field.");
+    viewModel.EventSearchText = "不存在";
+    Assert(viewModel.EventSearchResultText == "0 / 0", "No-result summary is incorrect.");
+    Assert(!viewModel.CanFindNextEvent && !viewModel.FindNextEvent(), "No-result search must reject navigation.");
+
+    viewModel.EventSearchText = new string('x', 200);
+    Assert(viewModel.EventSearchText.Length == 128, "Programmatic search text must respect the 128-character limit.");
+
+    viewModel.EventSearchText = "延时";
+    Assert(viewModel.FindNextEvent() && viewModel.SelectedEvent?.Event is DelayMacroEvent, "Delay search did not select its only match.");
+    Assert(viewModel.DeleteSelectedEvent(), "Deleting the selected search result should succeed.");
+    Assert(viewModel.EventSearchResultText == "0 / 0", "Search results were not rebuilt after timeline editing.");
+    Assert(viewModel.Undo(), "Undo after deleting a search result should succeed.");
+    Assert(viewModel.EventSearchResultText == "1 / 1", "Search results were not rebuilt after undo.");
 }
 
 static void WorkspaceExpandsNestedMacrosBeforeExport()

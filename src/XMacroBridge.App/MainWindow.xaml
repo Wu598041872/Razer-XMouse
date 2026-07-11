@@ -269,6 +269,8 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="6" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="6" />
+                            <RowDefinition Height="Auto" />
                             <RowDefinition Height="10" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
@@ -512,8 +514,53 @@
                                     ToolTip="{Binding RedoAvailabilityText}" />
                         </WrapPanel>
 
+                        <WrapPanel Grid.Row="8" VerticalAlignment="Center">
+                            <TextBlock Margin="0,0,6,0"
+                                       VerticalAlignment="Center"
+                                       Style="{StaticResource CaptionStyle}"
+                                       Text="搜索事件" />
+                            <TextBox x:Name="EventSearchTextBox"
+                                     AutomationProperties.Name="搜索时间线事件"
+                                     AutomationProperties.HelpText="匹配事件序号、事件类型和详细信息，最多 128 个字符"
+                                     TabIndex="25"
+                                     Width="180"
+                                     Height="32"
+                                     MaxLength="128"
+                                     Padding="8,5"
+                                     VerticalContentAlignment="Center"
+                                     Background="{DynamicResource SurfaceSecondaryBrush}"
+                                     BorderBrush="{DynamicResource DividerBrush}"
+                                     BorderThickness="1"
+                                     Text="{Binding EventSearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged, Delay=250}" />
+                            <Button x:Name="FindPreviousEventButton"
+                                    AutomationProperties.Name="定位上一个时间线搜索结果"
+                                    TabIndex="26"
+                                    Margin="6,0,6,0"
+                                    MinWidth="70"
+                                    Click="FindPreviousEvent_Click"
+                                    Content="上一个"
+                                    IsEnabled="{Binding CanFindPreviousEvent, Mode=OneWay}"
+                                    Style="{StaticResource SecondaryButtonStyle}" />
+                            <Button x:Name="FindNextEventButton"
+                                    AutomationProperties.Name="定位下一个时间线搜索结果"
+                                    TabIndex="27"
+                                    Margin="0,0,8,0"
+                                    MinWidth="70"
+                                    Click="FindNextEvent_Click"
+                                    Content="下一个"
+                                    IsEnabled="{Binding CanFindNextEvent, Mode=OneWay}"
+                                    Style="{StaticResource SecondaryButtonStyle}" />
+                            <TextBlock x:Name="EventSearchResultTextBlock"
+                                       AutomationProperties.LiveSetting="Polite"
+                                       AutomationProperties.Name="时间线搜索结果计数"
+                                       MinWidth="48"
+                                       VerticalAlignment="Center"
+                                       Style="{StaticResource CaptionStyle}"
+                                       Text="{Binding EventSearchResultText, Mode=OneWay}" />
+                        </WrapPanel>
+
                         <DataGrid x:Name="EventTimeline"
-                                  Grid.Row="8"
+                                  Grid.Row="10"
                                   AutomationProperties.Name="宏事件时间线"
                                   Focusable="True"
                                   IsTabStop="True"
@@ -619,7 +666,7 @@
                                 <ComboBox x:Name="DiagnosticSeverityFilter"
                                           ItemsSource="{Binding DiagnosticSeverityOptions}"
                                           AutomationProperties.Name="诊断严重级别筛选"
-                                          TabIndex="25"
+                                          TabIndex="28"
                                           DisplayMemberPath="DisplayName"
                                           SelectedItem="{Binding SelectedDiagnosticSeverity, Mode=TwoWay}"
                                           Background="Transparent"
@@ -635,7 +682,7 @@
                                 <ComboBox x:Name="DiagnosticScopeFilter"
                                           ItemsSource="{Binding DiagnosticScopes}"
                                           AutomationProperties.Name="诊断来源筛选"
-                                          TabIndex="26"
+                                          TabIndex="29"
                                           DisplayMemberPath="DisplayName"
                                           SelectedItem="{Binding SelectedDiagnosticScope, Mode=TwoWay}"
                                           Background="Transparent"
@@ -667,7 +714,7 @@
                                           Focusable="True"
                                           IsTabStop="True"
                                           KeyboardNavigation.TabNavigation="None"
-                                          TabIndex="27"
+                                          TabIndex="30"
                                           VerticalScrollBarVisibility="Auto"
                                           HorizontalScrollBarVisibility="Disabled">
                                 <ItemsControl x:Name="DiagnosticGroupList"
@@ -796,7 +843,7 @@
                             <Button x:Name="CancelButton"
                                     Grid.Column="1"
                                     AutomationProperties.Name="取消当前操作"
-                                    TabIndex="28"
+                                    TabIndex="31"
                                     Margin="12,0,0,0"
                                     MinWidth="72"
                                     VerticalAlignment="Bottom"

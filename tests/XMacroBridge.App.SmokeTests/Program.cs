@@ -110,6 +110,10 @@ internal static class Program
             var mouseButton = Find<ComboBox>(window, "MouseButtonSelector");
             var mouseTransition = Find<ComboBox>(window, "MouseTransitionSelector");
             var insertMouseEvent = Find<Button>(window, "InsertMouseEventButton");
+            var eventSearch = Find<TextBox>(window, "EventSearchTextBox");
+            var findPreviousEvent = Find<Button>(window, "FindPreviousEventButton");
+            var findNextEvent = Find<Button>(window, "FindNextEventButton");
+            var eventSearchResult = Find<TextBlock>(window, "EventSearchResultTextBlock");
 
             viewModel.SelectedEvent = viewModel.Events.FirstOrDefault(item => item.IsFixedDelay)
                 ?? throw new InvalidOperationException("The selected smoke-test macro has no fixed delay to edit.");
@@ -133,6 +137,8 @@ internal static class Program
             Assert(keyTransition.Items.Count == 2 && mouseTransition.Items.Count == 2, "Input transition options are incomplete.");
             Assert(mouseButton.Items.Count == 9, "Mouse button options are incomplete.");
             Assert(insertKeyEvent.IsEnabled && insertMouseEvent.IsEnabled, "Parameterized insertion should be enabled below the event limit.");
+            Assert(!findPreviousEvent.IsEnabled && !findNextEvent.IsEnabled, "Empty event search should disable navigation.");
+            Assert(eventSearchResult.Text == "未搜索", "Empty event search summary is incorrect.");
             VerifyAccessibilityNames(
                 macroList,
                 eventTimeline,
@@ -165,7 +171,11 @@ internal static class Program
                 insertKeyEvent,
                 mouseButton,
                 mouseTransition,
-                insertMouseEvent);
+                insertMouseEvent,
+                eventSearch,
+                findPreviousEvent,
+                findNextEvent,
+                eventSearchResult);
             VerifyDpiAwareness(window);
             VerifyCompactLayout(workspaceScroll);
             VerifyKeyboardContract(
@@ -194,6 +204,9 @@ internal static class Program
                 scaleDelays,
                 undo,
                 redo,
+                eventSearch,
+                findPreviousEvent,
+                findNextEvent,
                 severityFilter,
                 scopeFilter,
                 diagnosticScroll,
@@ -221,6 +234,13 @@ internal static class Program
                 mouseButton,
                 mouseTransition,
                 insertMouseEvent);
+            VerifyEventSearchBindings(
+                viewModel,
+                window,
+                eventSearch,
+                findPreviousEvent,
+                findNextEvent,
+                eventSearchResult);
             VerifyGeneratedAccessibility(viewModel, macroList, eventTimeline, diagnosticGroups, statusText);
             VerifyTimelineVirtualization(viewModel, eventTimeline);
             VerifyTheme(application, expectedTheme);
@@ -431,6 +451,37 @@ internal static class Program
         window.UpdateLayout();
         Assert(viewModel.CanExport, "Inserted mouse-up event should balance the mouse-down event.");
         Assert(viewModel.SelectedMacro.Events.Count == originalEventCount + 4, "Parameterized insertion did not add four events.");
+    }
+
+    private static void VerifyEventSearchBindings(
+        WorkspaceViewModel viewModel,
+        Window window,
+        TextBox eventSearch,
+        Button findPreviousEvent,
+        Button findNextEvent,
+        TextBlock eventSearchResult)
+    {
+        viewModel.EventSearchText = "键盘";
+        window.UpdateLayout();
+        Assert(eventSearch.Text == "键盘", "Event search text binding did not refresh.");
+        Assert(findPreviousEvent.IsEnabled && findNextEvent.IsEnabled, "Matching event search did not enable navigation.");
+        Assert(eventSearchResult.Text.StartsWith("0 / ", StringComparison.Ordinal), "Event search count is incorrect before navigation.");
+
+        findNextEvent.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        window.UpdateLayout();
+        Assert(viewModel.SelectedEvent?.Type == "键盘", "Next-result button did not select a matching event.");
+        Assert(eventSearchResult.Text.StartsWith("1 / ", StringComparison.Ordinal), "Event search position did not update after navigation.");
+
+        findPreviousEvent.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        window.UpdateLayout();
+        Assert(viewModel.SelectedEvent?.Type == "键盘", "Previous-result button did not preserve a matching selection.");
+        Assert(
+            AutomationProperties.GetName(eventSearchResult) == "时间线搜索结果计数",
+            "Event search result UIA name must remain static and exclude the search query.");
+
+        viewModel.EventSearchText = string.Empty;
+        window.UpdateLayout();
+        Assert(eventSearchResult.Text == "未搜索", "Clearing event search did not restore the idle summary.");
     }
 
     private static void VerifyFocusRing(Button button, string expectedBrushKey)

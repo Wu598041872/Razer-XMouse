@@ -14,6 +14,7 @@ namespace XMacroBridge.Presentation.Workspace;
 public sealed class WorkspaceViewModel : ObservableObject
 {
     private const int MaximumEditHistoryEntries = 20;
+    private const int MaximumEventSearchLength = 128;
     private readonly MacroImportService importService;
     private readonly SafeExportService exportService;
     private readonly INestedMacroResolver resolver;
@@ -41,6 +42,9 @@ public sealed class WorkspaceViewModel : ObservableObject
     private InputTransitionOption selectedKeyTransition;
     private InputTransitionOption selectedMouseTransition;
     private MouseButtonOption selectedMouseButton;
+    private string eventSearchText = string.Empty;
+    private int[] eventSearchMatches = [];
+    private int currentEventSearchMatch = -1;
 
     public WorkspaceViewModel(
         MacroImportService importService,
@@ -141,7 +145,26 @@ public sealed class WorkspaceViewModel : ObservableObject
                 DelayMillisecondsText = value?.Event is DelayMacroEvent delay
                     ? delay.Milliseconds.ToString(CultureInfo.InvariantCulture)
                     : string.Empty;
+                SynchronizeEventSearchPosition();
                 NotifyEditingState();
+            }
+        }
+    }
+
+    public string EventSearchText
+    {
+        get => eventSearchText;
+        set
+        {
+            var normalized = value ?? string.Empty;
+            if (normalized.Length > MaximumEventSearchLength)
+            {
+                normalized = normalized[..MaximumEventSearchLength];
+            }
+
+            if (SetProperty(ref eventSearchText, normalized))
+            {
+                RebuildEventSearchResults();
             }
         }
     }
@@ -294,6 +317,10 @@ public sealed class WorkspaceViewModel : ObservableObject
 
     public bool CanRedo => !IsBusy && redoHistory.Count > 0;
 
+    public bool CanFindPreviousEvent => !IsBusy && eventSearchMatches.Length > 0;
+
+    public bool CanFindNextEvent => !IsBusy && eventSearchMatches.Length > 0;
+
     public string UndoAvailabilityText => undoHistory.Count == 0
         ? "没有可撤销的编辑"
         : $"撤销：{undoHistory[^1].Description}";
@@ -301,6 +328,14 @@ public sealed class WorkspaceViewModel : ObservableObject
     public string RedoAvailabilityText => redoHistory.Count == 0
         ? "没有可重做的编辑"
         : $"重做：{redoHistory[^1].Description}";
+
+    public string EventSearchResultText => string.IsNullOrWhiteSpace(EventSearchText)
+        ? "未搜索"
+        : eventSearchMatches.Length == 0
+            ? "0 / 0"
+            : currentEventSearchMatch < 0
+                ? $"0 / {eventSearchMatches.Length}"
+                : $"{currentEventSearchMatch + 1} / {eventSearchMatches.Length}";
 
     public double ProgressPercent
     {
@@ -794,6 +829,37 @@ public sealed class WorkspaceViewModel : ObservableObject
 
     public bool MoveSelectedEventDown() => MoveSelectedEvent(1);
 
+    public bool FindPreviousEvent() => FindEvent(-1);
+
+    public bool FindNextEvent() => FindEvent(1);
+
+    private bool FindEvent(int offset)
+    {
+        var canFind = offset < 0 ? CanFindPreviousEvent : CanFindNextEvent;
+        if (!canFind)
+        {
+            StatusText = string.IsNullOrWhiteSpace(EventSearchText)
+                ? "请输入时间线搜索关键词"
+                : "当前宏没有匹配的时间线事件";
+            return false;
+        }
+
+        var selectedMatch = SelectedEvent is null
+            ? -1
+            : Array.IndexOf(eventSearchMatches, SelectedEvent.DisplayIndex);
+        var targetMatch = selectedMatch >= 0
+            ? (selectedMatch + offset + eventSearchMatches.Length) % eventSearchMatches.Length
+            : offset < 0
+                ? eventSearchMatches.Length - 1
+                : 0;
+
+        currentEventSearchMatch = targetMatch;
+        SelectedEvent = Events[eventSearchMatches[targetMatch]];
+        OnPropertyChanged(nameof(EventSearchResultText));
+        StatusText = $"已定位到时间线搜索结果 {targetMatch + 1} / {eventSearchMatches.Length}";
+        return true;
+    }
+
     private bool MoveSelectedEvent(int offset)
     {
         var canMove = offset < 0 ? CanMoveEventUp : CanMoveEventDown;
@@ -893,8 +959,43 @@ public sealed class WorkspaceViewModel : ObservableObject
             }
         }
 
+        RebuildEventSearchResults();
         OnPropertyChanged(nameof(SelectedMacroSummary));
     }
+
+    private void RebuildEventSearchResults()
+    {
+        var query = EventSearchText.Trim();
+        eventSearchMatches = query.Length == 0
+            ? []
+            : Events
+                .Where(item => EventMatchesSearch(item, query))
+                .Select(item => item.DisplayIndex)
+                .ToArray();
+        SynchronizeEventSearchPosition();
+        OnPropertyChanged(nameof(EventSearchResultText));
+        OnPropertyChanged(nameof(CanFindPreviousEvent));
+        OnPropertyChanged(nameof(CanFindNextEvent));
+    }
+
+    private void SynchronizeEventSearchPosition()
+    {
+        var newPosition = SelectedEvent is null
+            ? -1
+            : Array.IndexOf(eventSearchMatches, SelectedEvent.DisplayIndex);
+        if (currentEventSearchMatch == newPosition)
+        {
+            return;
+        }
+
+        currentEventSearchMatch = newPosition;
+        OnPropertyChanged(nameof(EventSearchResultText));
+    }
+
+    private static bool EventMatchesSearch(MacroEventRow item, string query) =>
+        item.Sequence.ToString(CultureInfo.InvariantCulture).Contains(query, StringComparison.OrdinalIgnoreCase) ||
+        item.Type.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+        item.Details.Contains(query, StringComparison.OrdinalIgnoreCase);
 
     private void EvaluateSelectedMacro()
     {
@@ -1114,6 +1215,8 @@ public sealed class WorkspaceViewModel : ObservableObject
         OnPropertyChanged(nameof(CanScaleDelays));
         OnPropertyChanged(nameof(CanUndo));
         OnPropertyChanged(nameof(CanRedo));
+        OnPropertyChanged(nameof(CanFindPreviousEvent));
+        OnPropertyChanged(nameof(CanFindNextEvent));
         OnPropertyChanged(nameof(UndoAvailabilityText));
         OnPropertyChanged(nameof(RedoAvailabilityText));
     }

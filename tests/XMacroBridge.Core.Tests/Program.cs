@@ -44,6 +44,7 @@ var tests = new (string Name, Action Run)[]
     ("XMBC invalid random delay is rejected", XmbcInvalidRandomDelayIsRejected),
     ("XMBC scan codes round trip", XmbcScanCodesRoundTrip),
     ("XMBC commands are preserved and blocked for Razer", XmbcCommandsArePreservedAndBlockedForRazer),
+    ("XMBC extended fixture round trips semantically", XmbcExtendedFixtureRoundTripsSemantically),
     ("Application import service handles fixture directory", ApplicationImportServiceHandlesFixtureDirectory),
     ("Application import service diagnoses unknown XML", ApplicationImportServiceDiagnosesUnknownXml),
     ("Safe export writes atomically and protects source", SafeExportWritesAtomicallyAndProtectsSource),
@@ -487,6 +488,32 @@ static void XmbcCommandsArePreservedAndBlockedForRazer()
     var razerDiagnostics = new RazerMacroXmlExporter().ExportAsync(document, razerOutput).GetAwaiter().GetResult();
     Assert(razerDiagnostics.Any(item => item.Code == "RAZER_EXPORT_XMBC_COMMAND_UNSUPPORTED"), "Razer command incompatibility is absent.");
     Assert(razerOutput.Length == 0, "Incompatible command export must not write Razer XML.");
+}
+
+static void XmbcExtendedFixtureRoundTripsSemantically()
+{
+    var fixturePath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "extended-tags.txt");
+    using var input = File.OpenRead(fixturePath);
+    var imported = new XmbcMacroTextImporter().ImportAsync(input, fixturePath).GetAwaiter().GetResult();
+    var document = imported.Documents.Single();
+
+    Assert(!imported.Diagnostics.Any(item => item.Severity == DiagnosticSeverity.Error), "Extended XMBC fixture should import without errors.");
+    Assert(document.Events.OfType<RandomDelayMacroEvent>().Any(), "Random delay is absent from the extended fixture.");
+    Assert(document.Events.OfType<ScanCodeMacroEvent>().Count() == 2, "Scan-code press/release pair is absent.");
+    Assert(document.Events.OfType<XmbcCommandMacroEvent>().Count() == 2, "XMBC commands were not preserved.");
+    Assert(document.Events.OfType<KeyMacroEvent>().Any(item => item.VirtualKey == 0x87), "F24 is absent.");
+    Assert(document.Events.OfType<MouseMacroEvent>().Any(item => item.Button == MouseButton.XButton1), "MB4 is absent.");
+    Assert(document.Events.OfType<MouseMacroEvent>().Any(item => item.Button == MouseButton.WheelUp), "MWUP is absent.");
+    Assert(!new MacroValidator().Validate(document).HasErrors, "Extended fixture should pass model validation.");
+
+    using var output = new MemoryStream();
+    var exportDiagnostics = new XmbcMacroTextExporter().ExportAsync(document, output).GetAwaiter().GetResult();
+    var exportErrors = exportDiagnostics.Where(item => item.Severity == DiagnosticSeverity.Error).ToArray();
+    Assert(exportErrors.Length == 0, $"Extended XMBC fixture should export: {string.Join(", ", exportErrors.Select(item => item.Code))}");
+
+    output.Position = 0;
+    var roundTrip = new XmbcMacroTextImporter().ImportAsync(output, "extended-roundtrip.txt").GetAwaiter().GetResult();
+    Assert(EventSignatures(roundTrip.Documents.Single()).SequenceEqual(EventSignatures(document)), "Extended XMBC semantic round trip changed events.");
 }
 
 static void ApplicationImportServiceHandlesFixtureDirectory()

@@ -13,6 +13,7 @@
     <None Include="..\..\samples\razer\basic-key-delay.xml" Link="Fixtures\basic-key-delay.xml" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\samples\razer\nested-macros.synapse4" Link="Fixtures\nested-macros.synapse4" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\samples\xmbc\basic-key-delay.txt" Link="Fixtures\basic-key-delay.txt" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\samples\xmbc\extended-tags.txt" Link="Fixtures\extended-tags.txt" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\samples\xmbc\settings-action28.xml" Link="Fixtures\settings-action28.xml" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

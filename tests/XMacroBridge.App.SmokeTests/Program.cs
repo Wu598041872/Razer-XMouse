@@ -57,7 +57,7 @@ internal static class Program
                 await Task.Delay(25);
             }
 
-            Assert(viewModel.Macros.Count == 8, "Expected eight imported anonymous fixture macros.");
+            Assert(viewModel.Macros.Count == 9, "Expected nine imported anonymous fixture macros.");
             Assert(viewModel.SelectedMacro is not null, "The first imported macro was not selected.");
             Assert(viewModel.Diagnostics.Count == 3, "Expected three fixture diagnostics.");
 
@@ -72,7 +72,7 @@ internal static class Program
             var targetFormat = Find<ComboBox>(window, "TargetFormatSelector");
             var progress = Find<ProgressBar>(window, "OperationProgress");
 
-            Assert(macroList.Items.Count == 8, "Macro list binding did not expose eight items.");
+            Assert(macroList.Items.Count == 9, "Macro list binding did not expose nine items.");
             Assert(eventTimeline.Items.Count == viewModel.SelectedMacro!.Events.Count, "Event timeline is out of sync with the selection.");
             Assert(exportButton.IsEnabled, "Export should be enabled for the selected valid fixture.");
             Assert(importFilesButton.IsEnabled, "Import should be enabled after startup import completes.");

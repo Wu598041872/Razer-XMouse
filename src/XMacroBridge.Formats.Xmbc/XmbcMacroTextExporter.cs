@@ -181,6 +181,11 @@ public sealed class XmbcMacroTextExporter : IMacroExporter
             (MouseButton.TiltRight, InputTransition.Up) => string.Empty,
             _ => string.Empty,
         };
-        return text.Length > 0;
+        return text.Length > 0 ||
+               mouse is
+               {
+                   Button: MouseButton.WheelUp or MouseButton.WheelDown or MouseButton.TiltLeft or MouseButton.TiltRight,
+                   Transition: InputTransition.Up,
+               };
     }
 }

@@ -11,6 +11,7 @@ using System.Text.RegularExpressions;
 using XMacroBridge.Core.Diagnostics;
 using XMacroBridge.Core.Models;
 using XMacroBridge.Presentation.Workspace;
+using MacroMouseButton = XMacroBridge.Core.Models.MouseButton;
 
 namespace XMacroBridge.App.SmokeTests;
 
@@ -102,6 +103,13 @@ internal static class Program
             var deleteEvent = Find<Button>(window, "DeleteEventButton");
             var moveEventUp = Find<Button>(window, "MoveEventUpButton");
             var moveEventDown = Find<Button>(window, "MoveEventDownButton");
+            var virtualKey = Find<TextBox>(window, "VirtualKeyTextBox");
+            var keyTransition = Find<ComboBox>(window, "KeyTransitionSelector");
+            var extendedKey = Find<CheckBox>(window, "ExtendedKeyCheckBox");
+            var insertKeyEvent = Find<Button>(window, "InsertKeyEventButton");
+            var mouseButton = Find<ComboBox>(window, "MouseButtonSelector");
+            var mouseTransition = Find<ComboBox>(window, "MouseTransitionSelector");
+            var insertMouseEvent = Find<Button>(window, "InsertMouseEventButton");
 
             viewModel.SelectedEvent = viewModel.Events.FirstOrDefault(item => item.IsFixedDelay)
                 ?? throw new InvalidOperationException("The selected smoke-test macro has no fixed delay to edit.");
@@ -122,6 +130,9 @@ internal static class Program
             Assert(insertDelay.IsEnabled, "A macro below the event limit should allow delay insertion.");
             Assert(copyEvent.IsEnabled && deleteEvent.IsEnabled, "Selected event should enable copy and delete.");
             Assert(moveEventUp.IsEnabled || moveEventDown.IsEnabled, "A selected event in a multi-event macro should allow movement.");
+            Assert(keyTransition.Items.Count == 2 && mouseTransition.Items.Count == 2, "Input transition options are incomplete.");
+            Assert(mouseButton.Items.Count == 9, "Mouse button options are incomplete.");
+            Assert(insertKeyEvent.IsEnabled && insertMouseEvent.IsEnabled, "Parameterized insertion should be enabled below the event limit.");
             VerifyAccessibilityNames(
                 macroList,
                 eventTimeline,
@@ -147,7 +158,14 @@ internal static class Program
                 copyEvent,
                 deleteEvent,
                 moveEventUp,
-                moveEventDown);
+                moveEventDown,
+                virtualKey,
+                keyTransition,
+                extendedKey,
+                insertKeyEvent,
+                mouseButton,
+                mouseTransition,
+                insertMouseEvent);
             VerifyDpiAwareness(window);
             VerifyCompactLayout(workspaceScroll);
             VerifyKeyboardContract(
@@ -163,6 +181,13 @@ internal static class Program
                 deleteEvent,
                 moveEventUp,
                 moveEventDown,
+                virtualKey,
+                keyTransition,
+                extendedKey,
+                insertKeyEvent,
+                mouseButton,
+                mouseTransition,
+                insertMouseEvent,
                 delayMilliseconds,
                 applyDelay,
                 delayScalePercent,
@@ -186,6 +211,16 @@ internal static class Program
                 moveEventDown,
                 undo,
                 redo);
+            VerifyParameterizedInsertionBindings(
+                viewModel,
+                window,
+                virtualKey,
+                keyTransition,
+                extendedKey,
+                insertKeyEvent,
+                mouseButton,
+                mouseTransition,
+                insertMouseEvent);
             VerifyGeneratedAccessibility(viewModel, macroList, eventTimeline, diagnosticGroups, statusText);
             VerifyTimelineVirtualization(viewModel, eventTimeline);
             VerifyTheme(application, expectedTheme);
@@ -212,7 +247,7 @@ internal static class Program
                 $"{element.Name} does not expose an accessibility name.");
         }
 
-        foreach (var control in elements.OfType<Control>().Where(item => item is Button or ComboBox or TextBox))
+        foreach (var control in elements.OfType<Control>().Where(item => item is Button or ComboBox or TextBox or CheckBox))
         {
             Assert(control.Focusable && control.IsTabStop, $"{control.Name} is not keyboard focusable.");
         }
@@ -344,6 +379,58 @@ internal static class Program
         deleteEvent.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         window.UpdateLayout();
         Assert(viewModel.SelectedMacro.Events.Count == originalEventCount + 1, "Delete button did not remove the selected event.");
+    }
+
+    private static void VerifyParameterizedInsertionBindings(
+        WorkspaceViewModel viewModel,
+        Window window,
+        TextBox virtualKey,
+        ComboBox keyTransition,
+        CheckBox extendedKey,
+        Button insertKeyEvent,
+        ComboBox mouseButton,
+        ComboBox mouseTransition,
+        Button insertMouseEvent)
+    {
+        var originalEventCount = viewModel.SelectedMacro!.Events.Count;
+        virtualKey.Text = "66";
+        extendedKey.IsChecked = true;
+        keyTransition.SelectedItem = viewModel.InputTransitionOptions.Single(item => item.Transition == InputTransition.Down);
+        insertKeyEvent.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        window.UpdateLayout();
+        Assert(
+            viewModel.SelectedEvent?.Event is KeyMacroEvent
+            {
+                VirtualKey: 66,
+                Transition: InputTransition.Down,
+                IsExtended: true,
+            },
+            "Keyboard insertion controls did not create the requested key-down event.");
+        Assert(!viewModel.CanExport, "Inserted unpaired key-down event should block export.");
+
+        keyTransition.SelectedItem = viewModel.InputTransitionOptions.Single(item => item.Transition == InputTransition.Up);
+        insertKeyEvent.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        window.UpdateLayout();
+        Assert(viewModel.CanExport, "Inserted key-up event should balance the key-down event.");
+
+        mouseButton.SelectedItem = viewModel.MouseButtonOptions.Single(item => item.Button == MacroMouseButton.XButton2);
+        mouseTransition.SelectedItem = viewModel.InputTransitionOptions.Single(item => item.Transition == InputTransition.Down);
+        insertMouseEvent.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        window.UpdateLayout();
+        Assert(
+            viewModel.SelectedEvent?.Event is MouseMacroEvent
+            {
+                Button: MacroMouseButton.XButton2,
+                Transition: InputTransition.Down,
+            },
+            "Mouse insertion controls did not create the requested mouse-down event.");
+        Assert(!viewModel.CanExport, "Inserted unpaired mouse-down event should block export.");
+
+        mouseTransition.SelectedItem = viewModel.InputTransitionOptions.Single(item => item.Transition == InputTransition.Up);
+        insertMouseEvent.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        window.UpdateLayout();
+        Assert(viewModel.CanExport, "Inserted mouse-up event should balance the mouse-down event.");
+        Assert(viewModel.SelectedMacro.Events.Count == originalEventCount + 4, "Parameterized insertion did not add four events.");
     }
 
     private static void VerifyFocusRing(Button button, string expectedBrushKey)

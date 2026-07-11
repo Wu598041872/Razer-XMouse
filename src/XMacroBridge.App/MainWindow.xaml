@@ -267,6 +267,8 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="6" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="6" />
+                            <RowDefinition Height="Auto" />
                             <RowDefinition Height="10" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
@@ -353,11 +355,95 @@
                             <TextBlock Margin="0,0,6,0"
                                        VerticalAlignment="Center"
                                        Style="{StaticResource CaptionStyle}"
+                                       Text="键盘" />
+                            <TextBlock Margin="0,0,4,0"
+                                       VerticalAlignment="Center"
+                                       Style="{StaticResource CaptionStyle}"
+                                       Text="VK" />
+                            <TextBox x:Name="VirtualKeyTextBox"
+                                     AutomationProperties.Name="新键盘事件虚拟键码"
+                                     AutomationProperties.HelpText="输入 0 到 255 的十进制 Windows 虚拟键码"
+                                     TabIndex="12"
+                                     Width="58"
+                                     Height="32"
+                                     Padding="8,5"
+                                     VerticalContentAlignment="Center"
+                                     Background="{DynamicResource SurfaceSecondaryBrush}"
+                                     BorderBrush="{DynamicResource DividerBrush}"
+                                     BorderThickness="1"
+                                     Text="{Binding NewVirtualKeyText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <ComboBox x:Name="KeyTransitionSelector"
+                                      AutomationProperties.Name="新键盘事件按下或释放"
+                                      TabIndex="13"
+                                      Margin="6,0,0,0"
+                                      Width="76"
+                                      Height="32"
+                                      ItemsSource="{Binding InputTransitionOptions}"
+                                      DisplayMemberPath="DisplayName"
+                                      SelectedItem="{Binding SelectedKeyTransition, Mode=TwoWay}"
+                                      Background="{DynamicResource SurfaceSecondaryBrush}"
+                                      BorderBrush="{DynamicResource DividerBrush}" />
+                            <CheckBox x:Name="ExtendedKeyCheckBox"
+                                      AutomationProperties.Name="新键盘事件使用扩展键编码"
+                                      TabIndex="14"
+                                      Margin="8,0,8,0"
+                                      VerticalAlignment="Center"
+                                      Content="扩展键"
+                                      IsChecked="{Binding NewKeyIsExtended, Mode=TwoWay}" />
+                            <Button x:Name="InsertKeyEventButton"
+                                    AutomationProperties.Name="插入参数化键盘事件"
+                                    TabIndex="15"
+                                    Margin="0,0,14,0"
+                                    MinWidth="76"
+                                    Click="InsertKeyEvent_Click"
+                                    Content="插入键盘"
+                                    IsEnabled="{Binding CanInsertEvent}"
+                                    Style="{StaticResource SecondaryButtonStyle}" />
+
+                            <TextBlock Margin="0,0,6,0"
+                                       VerticalAlignment="Center"
+                                       Style="{StaticResource CaptionStyle}"
+                                       Text="鼠标" />
+                            <ComboBox x:Name="MouseButtonSelector"
+                                      AutomationProperties.Name="新鼠标事件按钮"
+                                      TabIndex="16"
+                                      Width="116"
+                                      Height="32"
+                                      ItemsSource="{Binding MouseButtonOptions}"
+                                      DisplayMemberPath="DisplayName"
+                                      SelectedItem="{Binding SelectedMouseButton, Mode=TwoWay}"
+                                      Background="{DynamicResource SurfaceSecondaryBrush}"
+                                      BorderBrush="{DynamicResource DividerBrush}" />
+                            <ComboBox x:Name="MouseTransitionSelector"
+                                      AutomationProperties.Name="新鼠标事件按下或释放"
+                                      TabIndex="17"
+                                      Margin="6,0,6,0"
+                                      Width="76"
+                                      Height="32"
+                                      ItemsSource="{Binding InputTransitionOptions}"
+                                      DisplayMemberPath="DisplayName"
+                                      SelectedItem="{Binding SelectedMouseTransition, Mode=TwoWay}"
+                                      Background="{DynamicResource SurfaceSecondaryBrush}"
+                                      BorderBrush="{DynamicResource DividerBrush}" />
+                            <Button x:Name="InsertMouseEventButton"
+                                    AutomationProperties.Name="插入参数化鼠标事件"
+                                    TabIndex="18"
+                                    MinWidth="76"
+                                    Click="InsertMouseEvent_Click"
+                                    Content="插入鼠标"
+                                    IsEnabled="{Binding CanInsertEvent}"
+                                    Style="{StaticResource SecondaryButtonStyle}" />
+                        </WrapPanel>
+
+                        <WrapPanel Grid.Row="6" VerticalAlignment="Center">
+                            <TextBlock Margin="0,0,6,0"
+                                       VerticalAlignment="Center"
+                                       Style="{StaticResource CaptionStyle}"
                                        Text="选中延时" />
                             <TextBox x:Name="DelayMillisecondsTextBox"
                                      AutomationProperties.Name="选中事件延时毫秒"
                                      AutomationProperties.HelpText="输入大于或等于零的整数毫秒"
-                                     TabIndex="12"
+                                     TabIndex="19"
                                      Width="82"
                                      Height="32"
                                      Padding="8,5"
@@ -368,7 +454,7 @@
                                      Text="{Binding DelayMillisecondsText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                             <Button x:Name="ApplyDelayButton"
                                     AutomationProperties.Name="应用选中事件延时"
-                                    TabIndex="13"
+                                    TabIndex="20"
                                     Margin="6,0,14,0"
                                     MinWidth="58"
                                     Click="ApplyDelay_Click"
@@ -383,7 +469,7 @@
                             <TextBox x:Name="DelayScalePercentTextBox"
                                      AutomationProperties.Name="全部延时缩放百分比"
                                      AutomationProperties.HelpText="同时缩放固定延时和随机延时，例如输入 125"
-                                     TabIndex="14"
+                                     TabIndex="21"
                                      Width="68"
                                      Height="32"
                                      Padding="8,5"
@@ -398,7 +484,7 @@
                                        Text="%" />
                             <Button x:Name="ScaleDelaysButton"
                                     AutomationProperties.Name="批量缩放全部延时"
-                                    TabIndex="15"
+                                    TabIndex="22"
                                     Margin="0,0,14,0"
                                     MinWidth="58"
                                     Click="ScaleDelays_Click"
@@ -407,7 +493,7 @@
                                     Style="{StaticResource SecondaryButtonStyle}" />
                             <Button x:Name="UndoButton"
                                     AutomationProperties.Name="撤销时间线编辑"
-                                    TabIndex="16"
+                                    TabIndex="23"
                                     Margin="0,0,6,0"
                                     MinWidth="58"
                                     Click="Undo_Click"
@@ -417,7 +503,7 @@
                                     ToolTip="{Binding UndoAvailabilityText}" />
                             <Button x:Name="RedoButton"
                                     AutomationProperties.Name="重做时间线编辑"
-                                    TabIndex="17"
+                                    TabIndex="24"
                                     MinWidth="58"
                                     Click="Redo_Click"
                                     Content="重做"
@@ -427,7 +513,7 @@
                         </WrapPanel>
 
                         <DataGrid x:Name="EventTimeline"
-                                  Grid.Row="6"
+                                  Grid.Row="8"
                                   AutomationProperties.Name="宏事件时间线"
                                   Focusable="True"
                                   IsTabStop="True"
@@ -533,7 +619,7 @@
                                 <ComboBox x:Name="DiagnosticSeverityFilter"
                                           ItemsSource="{Binding DiagnosticSeverityOptions}"
                                           AutomationProperties.Name="诊断严重级别筛选"
-                                          TabIndex="18"
+                                          TabIndex="25"
                                           DisplayMemberPath="DisplayName"
                                           SelectedItem="{Binding SelectedDiagnosticSeverity, Mode=TwoWay}"
                                           Background="Transparent"
@@ -549,7 +635,7 @@
                                 <ComboBox x:Name="DiagnosticScopeFilter"
                                           ItemsSource="{Binding DiagnosticScopes}"
                                           AutomationProperties.Name="诊断来源筛选"
-                                          TabIndex="19"
+                                          TabIndex="26"
                                           DisplayMemberPath="DisplayName"
                                           SelectedItem="{Binding SelectedDiagnosticScope, Mode=TwoWay}"
                                           Background="Transparent"
@@ -581,7 +667,7 @@
                                           Focusable="True"
                                           IsTabStop="True"
                                           KeyboardNavigation.TabNavigation="None"
-                                          TabIndex="20"
+                                          TabIndex="27"
                                           VerticalScrollBarVisibility="Auto"
                                           HorizontalScrollBarVisibility="Disabled">
                                 <ItemsControl x:Name="DiagnosticGroupList"
@@ -710,7 +796,7 @@
                             <Button x:Name="CancelButton"
                                     Grid.Column="1"
                                     AutomationProperties.Name="取消当前操作"
-                                    TabIndex="21"
+                                    TabIndex="28"
                                     Margin="12,0,0,0"
                                     MinWidth="72"
                                     VerticalAlignment="Bottom"

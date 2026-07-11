@@ -36,6 +36,11 @@ public sealed class WorkspaceViewModel : ObservableObject
     private string delayMillisecondsText = string.Empty;
     private string delayScalePercentText = "100";
     private string newDelayMillisecondsText = "10";
+    private string newVirtualKeyText = "65";
+    private bool newKeyIsExtended;
+    private InputTransitionOption selectedKeyTransition;
+    private InputTransitionOption selectedMouseTransition;
+    private MouseButtonOption selectedMouseButton;
 
     public WorkspaceViewModel(
         MacroImportService importService,
@@ -65,6 +70,26 @@ public sealed class WorkspaceViewModel : ObservableObject
             new DiagnosticSeverityOption("仅警告", DiagnosticSeverity.Warning),
             new DiagnosticSeverityOption("仅信息", DiagnosticSeverity.Info),
         ];
+        InputTransitionOptions =
+        [
+            new InputTransitionOption("按下", InputTransition.Down),
+            new InputTransitionOption("释放", InputTransition.Up),
+        ];
+        MouseButtonOptions =
+        [
+            new MouseButtonOption("左键", MouseButton.Left),
+            new MouseButtonOption("右键", MouseButton.Right),
+            new MouseButtonOption("中键", MouseButton.Middle),
+            new MouseButtonOption("侧键 1 / MB4", MouseButton.XButton1),
+            new MouseButtonOption("侧键 2 / MB5", MouseButton.XButton2),
+            new MouseButtonOption("滚轮向上", MouseButton.WheelUp),
+            new MouseButtonOption("滚轮向下", MouseButton.WheelDown),
+            new MouseButtonOption("滚轮左倾", MouseButton.TiltLeft),
+            new MouseButtonOption("滚轮右倾", MouseButton.TiltRight),
+        ];
+        selectedKeyTransition = InputTransitionOptions[0];
+        selectedMouseTransition = InputTransitionOptions[0];
+        selectedMouseButton = MouseButtonOptions[0];
         selectedDiagnosticSeverity = DiagnosticSeverityOptions[0];
         selectedDiagnosticScope = new DiagnosticScopeOption("全部来源", null);
         DiagnosticScopes.Add(selectedDiagnosticScope);
@@ -84,6 +109,10 @@ public sealed class WorkspaceViewModel : ObservableObject
     public IReadOnlyList<ExportFormatOption> ExportFormats { get; }
 
     public IReadOnlyList<DiagnosticSeverityOption> DiagnosticSeverityOptions { get; }
+
+    public IReadOnlyList<InputTransitionOption> InputTransitionOptions { get; }
+
+    public IReadOnlyList<MouseButtonOption> MouseButtonOptions { get; }
 
     public MacroDocument? SelectedMacro
     {
@@ -133,6 +162,48 @@ public sealed class WorkspaceViewModel : ObservableObject
     {
         get => newDelayMillisecondsText;
         set => SetProperty(ref newDelayMillisecondsText, value ?? string.Empty);
+    }
+
+    public string NewVirtualKeyText
+    {
+        get => newVirtualKeyText;
+        set => SetProperty(ref newVirtualKeyText, value ?? string.Empty);
+    }
+
+    public bool NewKeyIsExtended
+    {
+        get => newKeyIsExtended;
+        set => SetProperty(ref newKeyIsExtended, value);
+    }
+
+    public InputTransitionOption SelectedKeyTransition
+    {
+        get => selectedKeyTransition;
+        set
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            SetProperty(ref selectedKeyTransition, value);
+        }
+    }
+
+    public MouseButtonOption SelectedMouseButton
+    {
+        get => selectedMouseButton;
+        set
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            SetProperty(ref selectedMouseButton, value);
+        }
+    }
+
+    public InputTransitionOption SelectedMouseTransition
+    {
+        get => selectedMouseTransition;
+        set
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            SetProperty(ref selectedMouseTransition, value);
+        }
     }
 
     public string TargetFormatId
@@ -201,8 +272,10 @@ public sealed class WorkspaceViewModel : ObservableObject
     public bool CanUpdateSelectedDelay =>
         !IsBusy && SelectedMacro is not null && SelectedEvent?.Event is DelayMacroEvent;
 
-    public bool CanInsertDelay =>
+    public bool CanInsertEvent =>
         !IsBusy && SelectedMacro is not null && SelectedMacro.Events.Count < limits.MaximumEventsPerMacro;
+
+    public bool CanInsertDelay => CanInsertEvent;
 
     public bool CanDeleteEvent => !IsBusy && SelectedMacro is not null && SelectedEvent is not null;
 
@@ -560,9 +633,73 @@ public sealed class WorkspaceViewModel : ObservableObject
 
     public bool InsertDelayAfterSelection()
     {
+        if (!EnsureCanInsertEvent("固定延时"))
+        {
+            return false;
+        }
+
+        if (!long.TryParse(
+                NewDelayMillisecondsText,
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out var milliseconds) || milliseconds < 0)
+        {
+            StatusText = "新延时必须是大于或等于 0 的整数毫秒";
+            return false;
+        }
+
+        return InsertTimelineEvent(
+            new DelayMacroEvent(0, milliseconds),
+            $"插入 {milliseconds} ms 固定延时");
+    }
+
+    public bool InsertKeyboardEvent()
+    {
+        if (!EnsureCanInsertEvent("键盘事件"))
+        {
+            return false;
+        }
+
+        if (!int.TryParse(
+                NewVirtualKeyText,
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out var virtualKey) || virtualKey is < 0 or > 255)
+        {
+            StatusText = "虚拟键码必须是 0–255 范围内的十进制整数";
+            return false;
+        }
+
+        var extendedText = NewKeyIsExtended ? "，扩展键" : string.Empty;
+        return InsertTimelineEvent(
+            new KeyMacroEvent(
+                0,
+                virtualKey,
+                SelectedKeyTransition.Transition,
+                IsExtended: NewKeyIsExtended),
+            $"插入键盘{SelectedKeyTransition.DisplayName}事件（VK {virtualKey}{extendedText}）");
+    }
+
+    public bool InsertMouseEvent()
+    {
+        if (!EnsureCanInsertEvent("鼠标事件"))
+        {
+            return false;
+        }
+
+        return InsertTimelineEvent(
+            new MouseMacroEvent(
+                0,
+                SelectedMouseButton.Button,
+                SelectedMouseTransition.Transition),
+            $"插入鼠标{SelectedMouseButton.DisplayName}{SelectedMouseTransition.DisplayName}事件");
+    }
+
+    private bool EnsureCanInsertEvent(string eventName)
+    {
         if (IsBusy)
         {
-            StatusText = "操作进行中，暂时不能插入事件";
+            StatusText = $"操作进行中，暂时不能插入{eventName}";
             return false;
         }
 
@@ -578,27 +715,22 @@ public sealed class WorkspaceViewModel : ObservableObject
             return false;
         }
 
-        if (!long.TryParse(
-                NewDelayMillisecondsText,
-                NumberStyles.Integer,
-                CultureInfo.InvariantCulture,
-                out var milliseconds) || milliseconds < 0)
-        {
-            StatusText = "新延时必须是大于或等于 0 的整数毫秒";
-            return false;
-        }
+        return true;
+    }
 
+    private bool InsertTimelineEvent(MacroEvent macroEvent, string description)
+    {
         var beforeSelection = SelectedEvent?.EventIndex;
-        var result = TimelineEditOperations.InsertDelayAfterSelection(
-            SelectedMacro.Events,
+        var result = TimelineEditOperations.InsertEventAfterSelection(
+            SelectedMacro!.Events,
             beforeSelection,
-            milliseconds);
+            macroEvent);
         return ApplyMacroEdit(
             SelectedMacro,
             result.Events,
             beforeSelection,
             result.SelectedEventIndex,
-            $"插入 {milliseconds} ms 固定延时");
+            description);
     }
 
     public bool CopySelectedEvent()
@@ -973,6 +1105,7 @@ public sealed class WorkspaceViewModel : ObservableObject
     private void NotifyEditingState()
     {
         OnPropertyChanged(nameof(CanUpdateSelectedDelay));
+        OnPropertyChanged(nameof(CanInsertEvent));
         OnPropertyChanged(nameof(CanInsertDelay));
         OnPropertyChanged(nameof(CanDeleteEvent));
         OnPropertyChanged(nameof(CanCopyEvent));

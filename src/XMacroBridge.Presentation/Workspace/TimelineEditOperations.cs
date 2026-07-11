@@ -7,14 +7,25 @@ internal static class TimelineEditOperations
     public static TimelineEditResult InsertDelayAfterSelection(
         IReadOnlyList<MacroEvent> events,
         int? selectedEventIndex,
-        long milliseconds)
+        long milliseconds) =>
+        InsertEventAfterSelection(
+            events,
+            selectedEventIndex,
+            new DelayMacroEvent(0, milliseconds));
+
+    public static TimelineEditResult InsertEventAfterSelection(
+        IReadOnlyList<MacroEvent> events,
+        int? selectedEventIndex,
+        MacroEvent newEvent)
     {
+        ArgumentNullException.ThrowIfNull(newEvent);
         var orderedEvents = GetOrderedEvents(events);
         var selectedPosition = FindSelectedPosition(orderedEvents, selectedEventIndex);
         var insertionPosition = selectedPosition is null ? orderedEvents.Count : selectedPosition.Value + 1;
+        var insertedEvent = newEvent with { Sequence = insertionPosition };
         orderedEvents.Insert(
             insertionPosition,
-            new OrderedEvent(-1, new DelayMacroEvent(insertionPosition, milliseconds)));
+            new OrderedEvent(-1, insertedEvent));
         return Normalize(orderedEvents, insertionPosition);
     }
 

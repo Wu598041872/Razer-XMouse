@@ -79,6 +79,9 @@ var tests = new (string Name, Action Run)[]
     ("Workspace copied events revalidate safety", WorkspaceCopiedEventsRevalidateSafety),
     ("Workspace moved events normalize order and revalidate", WorkspaceMovedEventsNormalizeOrderAndRevalidate),
     ("Workspace structural editing respects event limit", WorkspaceStructuralEditingRespectsEventLimit),
+    ("Workspace inserts parameterized keyboard events", WorkspaceInsertsParameterizedKeyboardEvents),
+    ("Workspace rejects invalid virtual-key input", WorkspaceRejectsInvalidVirtualKeyInput),
+    ("Workspace inserts parameterized mouse events", WorkspaceInsertsParameterizedMouseEvents),
 };
 
 var failures = new List<string>();
@@ -1445,6 +1448,106 @@ static void WorkspaceStructuralEditingRespectsEventLimit()
     viewModel.NewDelayMillisecondsText = "3";
     Assert(viewModel.InsertDelayAfterSelection(), "Insert should succeed after capacity is available.");
     Assert(viewModel.SelectedMacro!.Events.Count == 2, "Insert after delete did not restore the configured event count.");
+}
+
+static void WorkspaceInsertsParameterizedKeyboardEvents()
+{
+    var original = CreateNamedDocument("键盘插入");
+    var viewModel = WorkspaceViewModel.CreateDefault();
+    viewModel.Macros.Add(original);
+    viewModel.SelectedMacro = original;
+    Assert(
+        viewModel.InputTransitionOptions.Select(item => item.Transition).SequenceEqual([InputTransition.Down, InputTransition.Up]),
+        "Keyboard transition options are incomplete or out of order.");
+
+    viewModel.NewVirtualKeyText = "65";
+    viewModel.NewKeyIsExtended = true;
+    viewModel.SelectedKeyTransition = viewModel.InputTransitionOptions.Single(item => item.Transition == InputTransition.Down);
+    Assert(viewModel.InsertKeyboardEvent(), "Parameterized key-down insertion should succeed.");
+    Assert(original.Events.Count == 0, "Keyboard insertion mutated the imported document.");
+    Assert(
+        viewModel.SelectedMacro!.Events.Single() is KeyMacroEvent
+        {
+            Sequence: 0,
+            VirtualKey: 65,
+            Transition: InputTransition.Down,
+            IsExtended: true,
+        },
+        "Inserted key-down parameters are incorrect.");
+    Assert(!viewModel.CanExport, "An unpaired inserted key-down event should block export.");
+    Assert(viewModel.Diagnostics.Any(item => item.Code == "KEY_NOT_RELEASED"), "Inserted key-down event did not produce a balance diagnostic.");
+
+    viewModel.SelectedKeyTransition = viewModel.InputTransitionOptions.Single(item => item.Transition == InputTransition.Up);
+    Assert(viewModel.InsertKeyboardEvent(), "Parameterized key-up insertion should succeed.");
+    Assert(viewModel.SelectedMacro.Events.Count == 2, "Key-up insertion did not add a second event.");
+    Assert(viewModel.SelectedMacro.Events[1] is KeyMacroEvent { Transition: InputTransition.Up, IsExtended: true }, "Inserted key-up parameters are incorrect.");
+    Assert(viewModel.CanExport, "Balanced inserted keyboard events should restore export safety.");
+    Assert(!viewModel.Diagnostics.Any(item => item.Code == "KEY_NOT_RELEASED"), "Balanced keyboard insertion left a stale diagnostic.");
+
+    Assert(viewModel.Undo(), "Inserted key-up event should be undoable.");
+    Assert(!viewModel.CanExport, "Undo should restore the unpaired key-down state.");
+    Assert(viewModel.Redo(), "Inserted key-up event should be redoable.");
+    Assert(viewModel.CanExport, "Redo should restore the balanced keyboard state.");
+}
+
+static void WorkspaceRejectsInvalidVirtualKeyInput()
+{
+    var original = CreateNamedDocument("非法键码");
+    var viewModel = WorkspaceViewModel.CreateDefault();
+    viewModel.Macros.Add(original);
+    viewModel.SelectedMacro = original;
+
+    foreach (var invalidValue in new[] { "-1", "256", "not-a-key" })
+    {
+        viewModel.NewVirtualKeyText = invalidValue;
+        Assert(!viewModel.InsertKeyboardEvent(), $"Virtual-key input {invalidValue} must be rejected.");
+        Assert(ReferenceEquals(viewModel.SelectedMacro, original), "Rejected virtual-key input changed the macro snapshot.");
+        Assert(!viewModel.CanUndo, "Rejected virtual-key input created an undo entry.");
+    }
+
+    Assert(viewModel.StatusText.Contains("0–255", StringComparison.Ordinal), "Invalid virtual-key input did not produce a useful status message.");
+}
+
+static void WorkspaceInsertsParameterizedMouseEvents()
+{
+    var original = CreateNamedDocument("鼠标插入");
+    var viewModel = WorkspaceViewModel.CreateDefault();
+    viewModel.Macros.Add(original);
+    viewModel.SelectedMacro = original;
+    Assert(
+        viewModel.MouseButtonOptions.Select(item => item.Button).SequenceEqual(Enum.GetValues<MouseButton>()),
+        "Mouse button options do not cover the unified model.");
+
+    viewModel.SelectedMouseButton = viewModel.MouseButtonOptions.Single(item => item.Button == MouseButton.Middle);
+    viewModel.SelectedMouseTransition = viewModel.InputTransitionOptions.Single(item => item.Transition == InputTransition.Down);
+    Assert(viewModel.InsertMouseEvent(), "Parameterized mouse-down insertion should succeed.");
+    Assert(
+        viewModel.SelectedMacro!.Events.Single() is MouseMacroEvent
+        {
+            Button: MouseButton.Middle,
+            Transition: InputTransition.Down,
+        },
+        "Inserted mouse-down parameters are incorrect.");
+    Assert(!viewModel.CanExport, "An unpaired mouse-down event should block export.");
+    Assert(viewModel.Diagnostics.Any(item => item.Code == "MOUSE_NOT_RELEASED"), "Inserted mouse-down event did not produce a balance diagnostic.");
+
+    viewModel.SelectedMouseTransition = viewModel.InputTransitionOptions.Single(item => item.Transition == InputTransition.Up);
+    Assert(viewModel.InsertMouseEvent(), "Parameterized mouse-up insertion should succeed.");
+    Assert(viewModel.CanExport, "Balanced inserted mouse events should restore export safety.");
+    Assert(!viewModel.Diagnostics.Any(item => item.Code == "MOUSE_NOT_RELEASED"), "Balanced mouse insertion left a stale diagnostic.");
+
+    viewModel.SelectedMouseButton = viewModel.MouseButtonOptions.Single(item => item.Button == MouseButton.WheelUp);
+    viewModel.SelectedMouseTransition = viewModel.InputTransitionOptions.Single(item => item.Transition == InputTransition.Down);
+    Assert(viewModel.InsertMouseEvent(), "Wheel-up down insertion should succeed.");
+    viewModel.SelectedMouseTransition = viewModel.InputTransitionOptions.Single(item => item.Transition == InputTransition.Up);
+    Assert(viewModel.InsertMouseEvent(), "Wheel-up release insertion should succeed.");
+    using var output = new MemoryStream();
+    var diagnostics = new XmbcMacroTextExporter()
+        .ExportAsync(viewModel.SelectedMacro, output)
+        .GetAwaiter()
+        .GetResult();
+    Assert(diagnostics.All(item => item.Severity != DiagnosticSeverity.Error), "Inserted mouse events failed XMBC export.");
+    Assert(Encoding.UTF8.GetString(output.ToArray()).Contains("{MWUP}", StringComparison.Ordinal), "Inserted wheel pair did not export as an XMBC atomic action.");
 }
 
 static string CreateFixtureDirectory()

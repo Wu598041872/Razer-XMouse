@@ -87,6 +87,10 @@ public partial class MainWindow : Window
 
     private void InsertDelay_Click(object sender, RoutedEventArgs e) => viewModel.InsertDelayAfterSelection();
 
+    private void InsertKeyEvent_Click(object sender, RoutedEventArgs e) => viewModel.InsertKeyboardEvent();
+
+    private void InsertMouseEvent_Click(object sender, RoutedEventArgs e) => viewModel.InsertMouseEvent();
+
     private void CopyEvent_Click(object sender, RoutedEventArgs e) => viewModel.CopySelectedEvent();
 
     private void DeleteEvent_Click(object sender, RoutedEventArgs e) => viewModel.DeleteSelectedEvent();

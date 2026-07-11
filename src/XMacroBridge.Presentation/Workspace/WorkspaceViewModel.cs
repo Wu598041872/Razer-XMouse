@@ -992,10 +992,21 @@ public sealed class WorkspaceViewModel : ObservableObject
         OnPropertyChanged(nameof(EventSearchResultText));
     }
 
-    private static bool EventMatchesSearch(MacroEventRow item, string query) =>
-        item.Sequence.ToString(CultureInfo.InvariantCulture).Contains(query, StringComparison.OrdinalIgnoreCase) ||
-        item.Type.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-        item.Details.Contains(query, StringComparison.OrdinalIgnoreCase);
+    private static bool EventMatchesSearch(MacroEventRow item, string query)
+    {
+        Span<char> sequenceBuffer = stackalloc char[20];
+        var sequenceMatches = item.Sequence.TryFormat(
+                                  sequenceBuffer,
+                                  out var sequenceLength,
+                                  provider: CultureInfo.InvariantCulture) &&
+                              MemoryExtensions.IndexOf(
+                                  (ReadOnlySpan<char>)sequenceBuffer[..sequenceLength],
+                                  query.AsSpan(),
+                                  StringComparison.OrdinalIgnoreCase) >= 0;
+        return sequenceMatches ||
+               item.Type.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+               item.Details.Contains(query, StringComparison.OrdinalIgnoreCase);
+    }
 
     private void EvaluateSelectedMacro()
     {

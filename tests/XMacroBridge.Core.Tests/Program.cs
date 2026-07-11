@@ -7,6 +7,7 @@ using XMacroBridge.Core.Models;
 using XMacroBridge.Formats.Razer;
 using XMacroBridge.Formats.Xmbc;
 using XMacroBridge.Presentation.Workspace;
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -83,6 +84,7 @@ var tests = new (string Name, Action Run)[]
     ("Workspace rejects invalid virtual-key input", WorkspaceRejectsInvalidVirtualKeyInput),
     ("Workspace inserts parameterized mouse events", WorkspaceInsertsParameterizedMouseEvents),
     ("Workspace searches timeline events and cycles selection", WorkspaceSearchesTimelineEventsAndCyclesSelection),
+    ("Workspace searches 100k events within resource budget", WorkspaceSearchesMaximumEventCountWithinResourceBudget),
 };
 
 var failures = new List<string>();
@@ -1080,6 +1082,39 @@ static void WorkspaceSearchesTimelineEventsAndCyclesSelection()
     Assert(viewModel.EventSearchResultText == "0 / 0", "Search results were not rebuilt after timeline editing.");
     Assert(viewModel.Undo(), "Undo after deleting a search result should succeed.");
     Assert(viewModel.EventSearchResultText == "1 / 1", "Search results were not rebuilt after undo.");
+}
+
+static void WorkspaceSearchesMaximumEventCountWithinResourceBudget()
+{
+    var events = new MacroEvent[100_000];
+    for (var index = 0; index < events.Length; index++)
+    {
+        events[index] = new DelayMacroEvent(index, index);
+    }
+
+    var document = CreateNamedDocument("十万事件搜索", events);
+    var viewModel = WorkspaceViewModel.CreateDefault();
+    viewModel.Macros.Add(document);
+    viewModel.SelectedMacro = document;
+    Assert(viewModel.Events.Count == 100_000, "Maximum-size timeline did not expose all events.");
+
+    viewModel.EventSearchText = "warmup-not-found";
+    viewModel.EventSearchText = string.Empty;
+    GC.Collect();
+    GC.WaitForPendingFinalizers();
+    GC.Collect();
+
+    var allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+    var stopwatch = Stopwatch.StartNew();
+    viewModel.EventSearchText = "99999";
+    stopwatch.Stop();
+    var allocatedBytes = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+    Assert(viewModel.EventSearchResultText == "0 / 1", "Maximum-size search result count is incorrect.");
+    Assert(viewModel.FindNextEvent(), "Maximum-size search did not allow result navigation.");
+    Assert(viewModel.SelectedEvent?.DisplayIndex == 99_999, "Maximum-size search selected the wrong event.");
+    Assert(stopwatch.Elapsed < TimeSpan.FromSeconds(5), $"Maximum-size search took {stopwatch.Elapsed.TotalMilliseconds:F0} ms.");
+    Assert(allocatedBytes < 1_000_000, $"Maximum-size search allocated {allocatedBytes:N0} bytes.");
 }
 
 static void WorkspaceExpandsNestedMacrosBeforeExport()

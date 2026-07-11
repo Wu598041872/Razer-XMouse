@@ -20,6 +20,9 @@ var tests = new (string Name, Action Run)[]
     ("Nested macro cycle is rejected", NestedMacroCycleIsRejected),
     ("Nested macro can fall back to index", NestedMacroCanFallBackToIndex),
     ("Nested expansion event limit is enforced", NestedExpansionEventLimitIsEnforced),
+    ("Synapse4 package imports and flattens", Synapse4PackageImportsAndFlattens),
+    ("Synapse4 invalid payload is diagnosed", Synapse4InvalidPayloadIsDiagnosed),
+    ("Synapse4 malformed event is preserved", Synapse4MalformedEventIsPreserved),
 };
 
 var failures = new List<string>();
@@ -186,6 +189,43 @@ static void NestedExpansionEventLimitIsEnforced()
     var result = new NestedMacroResolver().Resolve(root, [root, child], new MacroLimits(MaximumEventsPerMacro: 1));
     Assert(result.Document is null, "Over-limit expansion must not produce a document.");
     Assert(result.Diagnostics.Any(item => item.Code == "REFERENCE_EVENT_LIMIT"), "Expansion limit diagnostic is absent.");
+}
+
+static void Synapse4PackageImportsAndFlattens()
+{
+    var fixturePath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "nested-macros.synapse4");
+    using var stream = File.OpenRead(fixturePath);
+    var imported = new Synapse4Importer().ImportAsync(stream, fixturePath).GetAwaiter().GetResult();
+    Assert(imported.Documents.Count == 2, "Expected two macros from the package.");
+
+    var root = imported.Documents.Single(item => item.Id == Guid.Parse("22222222-2222-2222-2222-222222222222"));
+    var resolved = new NestedMacroResolver().Resolve(root, imported.Documents);
+    var flattened = resolved.Document ?? throw new InvalidOperationException("Expected package macro to flatten.");
+    Assert(flattened.Events.Count == 4, "Expected child events plus parent delay.");
+    Assert(!flattened.Events.OfType<MacroReferenceEvent>().Any(), "Package flattening left a reference event.");
+    Assert(!new MacroValidator().Validate(flattened).HasErrors, "Flattened package macro should validate.");
+}
+
+static void Synapse4InvalidPayloadIsDiagnosed()
+{
+    const string package = "{\"macros\":[{\"name\":\"Broken\",\"payload\":\"not-base64\",\"hash\":\"ignored\"}]}";
+    using var stream = new MemoryStream(Encoding.UTF8.GetBytes(package));
+    var imported = new Synapse4Importer().ImportAsync(stream, "broken.synapse4").GetAwaiter().GetResult();
+    Assert(imported.Documents.Count == 0, "Invalid payload must not create a macro.");
+    Assert(imported.Diagnostics.Any(item => item.Code == "SYNAPSE4_MACRO_INVALID"), "Invalid payload diagnostic is absent.");
+}
+
+static void Synapse4MalformedEventIsPreserved()
+{
+    const string inner = "{\"guid\":\"33333333-3333-3333-3333-333333333333\",\"macroEvents\":[123]}";
+    var payload = Convert.ToBase64String(Encoding.UTF8.GetBytes(inner));
+    var package = $"{{\"macros\":[{{\"name\":\"Malformed\",\"payload\":\"{payload}\",\"hash\":\"ignored\"}}]}}";
+    using var stream = new MemoryStream(Encoding.UTF8.GetBytes(package));
+    var imported = new Synapse4Importer().ImportAsync(stream, "malformed.synapse4").GetAwaiter().GetResult();
+
+    Assert(imported.Documents.Count == 1, "Malformed event should not discard the containing macro.");
+    Assert(imported.Documents[0].Events.OfType<UnknownMacroEvent>().Any(), "Malformed event must remain visible.");
+    Assert(imported.Diagnostics.Any(item => item.Code == "SYNAPSE4_EVENT_INVALID"), "Malformed event diagnostic is absent.");
 }
 
 static MacroDocument CreateDocument(params MacroEvent[] events) =>

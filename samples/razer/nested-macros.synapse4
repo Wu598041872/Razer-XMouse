@@ -1,0 +1,18 @@
+{
+  "productId": 122,
+  "deviceName": "",
+  "category": "MOUSE",
+  "profiles": [],
+  "macros": [
+    {
+      "name": "匿名化子宏",
+      "payload": "eyJndWlkIjoiMTExMTExMTEtMTExMS0xMTExLTExMTEtMTExMTExMTExMTExIiwibWFjcm9FdmVudHMiOlt7IlR5cGUiOiJhY3Rpb25CYXIiLCJyZWNvcmRQcm9maWxlIjp7Im1tdFNldHRpbmciOjB9LCJzZWxlY3RlZCI6ZmFsc2V9LHsiVHlwZSI6MSwiSWQiOjEsIktleUV2ZW50Ijp7Ik1ha2Vjb2RlIjo2NSwiU3RhdGUiOjB9fSx7IlR5cGUiOjAsIk51bWJlciI6IjAuMDUwIn0seyJUeXBlIjoxLCJJZCI6MSwiS2V5RXZlbnQiOnsiTWFrZWNvZGUiOjY1LCJTdGF0ZSI6MX19XSwibWFjcm9QbGF5YmFja09wdGlvbiI6IiJ9",
+      "hash": "fixture-not-verified"
+    },
+    {
+      "name": "匿名化父宏",
+      "payload": "eyJndWlkIjoiMjIyMjIyMjItMjIyMi0yMjIyLTIyMjItMjIyMjIyMjIyMjIyIiwibWFjcm9FdmVudHMiOlt7IlR5cGUiOiJhY3Rpb25CYXIiLCJyZWNvcmRQcm9maWxlIjp7Im1tdFNldHRpbmciOjB9LCJzZWxlY3RlZCI6ZmFsc2V9LHsiVHlwZSI6NywiTVBJbmRleCI6MCwiZ3VpZCI6IjExMTExMTExLTExMTEtMTExMS0xMTExLTExMTExMTExMTExMSIsInNlbGVjdGVkIjpmYWxzZX0seyJUeXBlIjowLCJOdW1iZXIiOiIwLjAxMCJ9XSwibWFjcm9QbGF5YmFja09wdGlvbiI6IiJ9",
+      "hash": "fixture-not-verified"
+    }
+  ]
+}

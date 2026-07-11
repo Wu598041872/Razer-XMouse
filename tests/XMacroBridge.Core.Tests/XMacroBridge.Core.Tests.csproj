@@ -5,6 +5,7 @@
     <RootNamespace>XMacroBridge.Core.Tests</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\src\XMacroBridge.Application\XMacroBridge.Application.csproj" />
     <ProjectReference Include="..\..\src\XMacroBridge.Core\XMacroBridge.Core.csproj" />
     <ProjectReference Include="..\..\src\XMacroBridge.Formats.Razer\XMacroBridge.Formats.Razer.csproj" />
     <ProjectReference Include="..\..\src\XMacroBridge.Formats.Xmbc\XMacroBridge.Formats.Xmbc.csproj" />

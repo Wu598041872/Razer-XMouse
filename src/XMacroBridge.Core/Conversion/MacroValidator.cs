@@ -22,6 +22,7 @@ public sealed class MacroValidator : IMacroValidator
 
         var pressedKeys = new HashSet<int>();
         var pressedButtons = new HashSet<MouseButton>();
+        var pressedScanCodes = new HashSet<(int ScanCode, bool IsExtended)>();
 
         foreach (var macroEvent in document.Events.OrderBy(item => item.Sequence))
         {
@@ -30,11 +31,19 @@ public sealed class MacroValidator : IMacroValidator
                 case DelayMacroEvent delay:
                     ValidateDelay(delay, limits, diagnostics);
                     break;
+                case RandomDelayMacroEvent randomDelay:
+                    ValidateRandomDelay(randomDelay, limits, diagnostics);
+                    break;
                 case KeyMacroEvent key:
                     ValidateKey(key, pressedKeys, diagnostics);
                     break;
                 case MouseMacroEvent mouse:
                     ValidateMouse(mouse, pressedButtons, diagnostics);
+                    break;
+                case ScanCodeMacroEvent scanCode:
+                    ValidateScanCode(scanCode, pressedScanCodes, diagnostics);
+                    break;
+                case XmbcCommandMacroEvent:
                     break;
                 case MacroReferenceEvent reference:
                     diagnostics.Add(new ConversionDiagnostic(
@@ -70,7 +79,39 @@ public sealed class MacroValidator : IMacroValidator
                 $"宏结束时鼠标按钮 {button} 仍处于按下状态。"));
         }
 
+        foreach (var scanCode in pressedScanCodes.OrderBy(item => item.ScanCode).ThenBy(item => item.IsExtended))
+        {
+            diagnostics.Add(new ConversionDiagnostic(
+                "SCAN_CODE_NOT_RELEASED",
+                DiagnosticSeverity.Error,
+                $"宏结束时扫描码 {scanCode.ScanCode}（扩展={scanCode.IsExtended}）仍处于按下状态。"));
+        }
+
         return new MacroValidationResult(diagnostics);
+    }
+
+    private static void ValidateRandomDelay(
+        RandomDelayMacroEvent delay,
+        MacroLimits limits,
+        ICollection<ConversionDiagnostic> diagnostics)
+    {
+        if (delay.MinimumMilliseconds < 0 || delay.MaximumMilliseconds < 0 ||
+            delay.MinimumMilliseconds > delay.MaximumMilliseconds)
+        {
+            diagnostics.Add(new ConversionDiagnostic(
+                "RANDOM_DELAY_RANGE_INVALID",
+                DiagnosticSeverity.Error,
+                $"随机延时范围无效：{delay.MinimumMilliseconds}-{delay.MaximumMilliseconds} ms。",
+                delay.Sequence));
+        }
+        else if (delay.MaximumMilliseconds > limits.MaximumDelayMilliseconds)
+        {
+            diagnostics.Add(new ConversionDiagnostic(
+                "RANDOM_DELAY_TOO_LONG",
+                DiagnosticSeverity.Error,
+                $"随机延时最大值 {delay.MaximumMilliseconds} ms 超过上限 {limits.MaximumDelayMilliseconds} ms。",
+                delay.Sequence));
+        }
     }
 
     private static void ValidateDelay(
@@ -145,6 +186,36 @@ public sealed class MacroValidator : IMacroValidator
                 DiagnosticSeverity.Error,
                 $"鼠标按钮 {mouse.Button} 出现{action}。",
                 mouse.Sequence));
+        }
+    }
+
+    private static void ValidateScanCode(
+        ScanCodeMacroEvent scanCode,
+        ISet<(int ScanCode, bool IsExtended)> pressedScanCodes,
+        ICollection<ConversionDiagnostic> diagnostics)
+    {
+        if (scanCode.ScanCode is < 0 or > 65535)
+        {
+            diagnostics.Add(new ConversionDiagnostic(
+                "SCAN_CODE_OUT_OF_RANGE",
+                DiagnosticSeverity.Error,
+                $"扫描码 {scanCode.ScanCode} 不在 0–65535 范围内。",
+                scanCode.Sequence));
+            return;
+        }
+
+        var key = (scanCode.ScanCode, scanCode.IsExtended);
+        var stateChanged = scanCode.Transition == InputTransition.Down
+            ? pressedScanCodes.Add(key)
+            : pressedScanCodes.Remove(key);
+        if (!stateChanged)
+        {
+            var code = scanCode.Transition == InputTransition.Down ? "SCAN_CODE_DUPLICATE_DOWN" : "SCAN_CODE_UP_WITHOUT_DOWN";
+            diagnostics.Add(new ConversionDiagnostic(
+                code,
+                DiagnosticSeverity.Error,
+                $"扫描码 {scanCode.ScanCode} 出现无效的 {scanCode.Transition} 状态。",
+                scanCode.Sequence));
         }
     }
 }

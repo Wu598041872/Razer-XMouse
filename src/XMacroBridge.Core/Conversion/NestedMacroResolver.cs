@@ -194,8 +194,11 @@ public sealed class NestedMacroResolver : INestedMacroResolver
     private static MacroEvent WithSequence(MacroEvent macroEvent, long sequence) => macroEvent switch
     {
         DelayMacroEvent delay => delay with { Sequence = sequence },
+        RandomDelayMacroEvent randomDelay => randomDelay with { Sequence = sequence },
         KeyMacroEvent key => key with { Sequence = sequence },
         MouseMacroEvent mouse => mouse with { Sequence = sequence },
+        ScanCodeMacroEvent scanCode => scanCode with { Sequence = sequence },
+        XmbcCommandMacroEvent command => command with { Sequence = sequence },
         MacroReferenceEvent reference => reference with { Sequence = sequence },
         UnknownMacroEvent unknown => unknown with { Sequence = sequence },
         _ => throw new InvalidOperationException($"无法重新编号事件类型 {macroEvent.GetType().Name}。"),

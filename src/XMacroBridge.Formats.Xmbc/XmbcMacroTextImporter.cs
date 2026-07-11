@@ -143,9 +143,33 @@ public sealed class XmbcMacroTextImporter : IMacroImporter
                         pendingModifiers,
                         ref pendingHoldMilliseconds);
                 }
-                else if (LooksLikeRandomDelay(token))
+                else if (TryParseScanCodeToken(token, out var scanCode, out var scanCodeExtended))
                 {
-                    AddUnknown(result, diagnostics, ref sequence, "{" + token + "}", "随机延时尚未纳入统一事件模型");
+                    EmitScanCode(
+                        result,
+                        ref sequence,
+                        scanCode,
+                        scanCodeExtended,
+                        explicitTransition,
+                        pendingModifiers,
+                        ref pendingHoldMilliseconds);
+                }
+                else if (TryParseRandomDelay(token, out var minimumDelay, out var maximumDelay))
+                {
+                    result.Add(new RandomDelayMacroEvent(sequence++, minimumDelay, maximumDelay));
+                }
+                else if (TryClassifyCommand(token, out var category))
+                {
+                    if (pendingModifiers.Count > 0 || pendingHoldMilliseconds is not null)
+                    {
+                        AddUnknown(result, diagnostics, ref sequence, "{" + token + "}", "辅助键或 HOLD 标记不能应用到 XMBC 命令");
+                        pendingModifiers.Clear();
+                        pendingHoldMilliseconds = null;
+                    }
+                    else
+                    {
+                        result.Add(new XmbcCommandMacroEvent(sequence++, "{" + token + "}", category));
+                    }
                 }
                 else
                 {
@@ -236,6 +260,50 @@ public sealed class XmbcMacroTextImporter : IMacroImporter
         pendingHoldMilliseconds = null;
     }
 
+    private static void EmitScanCode(
+        ICollection<MacroEvent> events,
+        ref long sequence,
+        int scanCode,
+        bool isExtended,
+        InputTransition? explicitTransition,
+        IList<(int VirtualKey, string Name, bool IsExtended)> pendingModifiers,
+        ref long? pendingHoldMilliseconds)
+    {
+        if (explicitTransition is { } transition)
+        {
+            foreach (var modifier in pendingModifiers)
+            {
+                events.Add(new KeyMacroEvent(sequence++, modifier.VirtualKey, transition, modifier.Name, modifier.IsExtended));
+            }
+
+            events.Add(new ScanCodeMacroEvent(sequence++, scanCode, transition, isExtended));
+            pendingModifiers.Clear();
+            pendingHoldMilliseconds = null;
+            return;
+        }
+
+        foreach (var modifier in pendingModifiers)
+        {
+            events.Add(new KeyMacroEvent(sequence++, modifier.VirtualKey, InputTransition.Down, modifier.Name, modifier.IsExtended));
+        }
+
+        events.Add(new ScanCodeMacroEvent(sequence++, scanCode, InputTransition.Down, isExtended));
+        if (pendingHoldMilliseconds is { } hold)
+        {
+            events.Add(new DelayMacroEvent(sequence++, hold));
+        }
+
+        events.Add(new ScanCodeMacroEvent(sequence++, scanCode, InputTransition.Up, isExtended));
+        for (var index = pendingModifiers.Count - 1; index >= 0; index--)
+        {
+            var modifier = pendingModifiers[index];
+            events.Add(new KeyMacroEvent(sequence++, modifier.VirtualKey, InputTransition.Up, modifier.Name, modifier.IsExtended));
+        }
+
+        pendingModifiers.Clear();
+        pendingHoldMilliseconds = null;
+    }
+
     private static bool TryParseDelayToken(string token, out long milliseconds)
     {
         milliseconds = 0;
@@ -303,8 +371,60 @@ public sealed class XmbcMacroTextImporter : IMacroImporter
         return suffix.Length > 0 && suffix.All(char.IsDigit);
     }
 
-    private static bool LooksLikeRandomDelay(string token) =>
-        token.StartsWith("WAITMS:", StringComparison.OrdinalIgnoreCase) && token.Contains('-');
+    private static bool TryParseRandomDelay(string token, out long minimum, out long maximum)
+    {
+        minimum = 0;
+        maximum = 0;
+        if (!token.StartsWith("WAITMS:", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var parts = token[7..].Split('-', StringSplitOptions.TrimEntries);
+        return parts.Length == 2
+            && long.TryParse(parts[0], NumberStyles.None, CultureInfo.InvariantCulture, out minimum)
+            && long.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out maximum);
+    }
+
+    private static bool TryParseScanCodeToken(string token, out int scanCode, out bool isExtended)
+    {
+        isExtended = token.StartsWith("SCE:", StringComparison.OrdinalIgnoreCase);
+        var prefix = isExtended ? "SCE:" : "SC:";
+        if (!token.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            scanCode = 0;
+            return false;
+        }
+
+        return int.TryParse(token[prefix.Length..], NumberStyles.Integer, CultureInfo.InvariantCulture, out scanCode)
+            && scanCode is >= 0 and <= 65535;
+    }
+
+    private static bool TryClassifyCommand(string token, out string category)
+    {
+        var upper = token.ToUpperInvariant();
+        category = upper switch
+        {
+            "NUMLOCKON" or "NUMLOCKOFF" or "CAPSLOCKON" or "CAPSLOCKOFF" or "SCROLLLOCKON" or "SCROLLLOCKOFF" => "lock-state",
+            "ACTIVATE" or "ACTIVATEPARENT" or "ACTIVATETOP" or "CURSORBUSY" or "CURSORDEFAULT"
+                or "INVERTXY" or "INVERTX" or "INVERTY" or "LOCKXY" or "LOCKX" or "LOCKY"
+                or "LOCKC" or "UNLOCKXY" or "UNLOCKX" or "UNLOCKY" => "action",
+            "OD" or "OU" or "OR" => "trigger-condition",
+            _ when HasCommandPrefix(upper, "CB:") => "clipboard",
+            _ when HasAnyCommandPrefix(upper, "MADD:", "MSET:", "PSET:", "ASET:", "MSAVE:", "MREST:") => "pointer",
+            _ when HasAnyCommandPrefix(upper, "RUN:", "RUNHID:", "RUNMAX:", "RUNMIN:", "RUNADM:", "KILL:") => "process",
+            _ when HasAnyCommandPrefix(upper, "POSTWM:", "SENDWM:") => "windows-message",
+            _ when HasCommandPrefix(upper, "LAYER:") => "layer",
+            _ => string.Empty,
+        };
+        return category.Length > 0;
+    }
+
+    private static bool HasCommandPrefix(string token, string prefix) =>
+        token.StartsWith(prefix, StringComparison.Ordinal);
+
+    private static bool HasAnyCommandPrefix(string token, params string[] prefixes) =>
+        prefixes.Any(prefix => HasCommandPrefix(token, prefix));
 
     private static bool TryParseModifier(
         string token,

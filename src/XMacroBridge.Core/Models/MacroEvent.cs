@@ -4,6 +4,11 @@ public abstract record MacroEvent(long Sequence);
 
 public sealed record DelayMacroEvent(long Sequence, long Milliseconds) : MacroEvent(Sequence);
 
+public sealed record RandomDelayMacroEvent(
+    long Sequence,
+    long MinimumMilliseconds,
+    long MaximumMilliseconds) : MacroEvent(Sequence);
+
 public sealed record KeyMacroEvent(
     long Sequence,
     int VirtualKey,
@@ -15,6 +20,17 @@ public sealed record MouseMacroEvent(
     long Sequence,
     MouseButton Button,
     InputTransition Transition) : MacroEvent(Sequence);
+
+public sealed record ScanCodeMacroEvent(
+    long Sequence,
+    int ScanCode,
+    InputTransition Transition,
+    bool IsExtended = false) : MacroEvent(Sequence);
+
+public sealed record XmbcCommandMacroEvent(
+    long Sequence,
+    string RawTag,
+    string Category) : MacroEvent(Sequence);
 
 public sealed record MacroReferenceEvent(
     long Sequence,

@@ -1,3 +1,6 @@
+using XMacroBridge.Application.Exporting;
+using XMacroBridge.Application.Formats;
+using XMacroBridge.Application.Importing;
 using XMacroBridge.Core.Conversion;
 using XMacroBridge.Core.Models;
 using XMacroBridge.Formats.Razer;
@@ -35,6 +38,15 @@ var tests = new (string Name, Action Run)[]
     ("XMBC extended key and mouse tags import", XmbcExtendedTagsImport),
     ("XMBC modifier states export round trip", XmbcModifierStatesExportRoundTrip),
     ("Razer XML export rejects extended key", RazerXmlExportRejectsExtendedKey),
+    ("XMBC random delay round trips", XmbcRandomDelayRoundTrips),
+    ("XMBC invalid random delay is rejected", XmbcInvalidRandomDelayIsRejected),
+    ("XMBC scan codes round trip", XmbcScanCodesRoundTrip),
+    ("XMBC commands are preserved and blocked for Razer", XmbcCommandsArePreservedAndBlockedForRazer),
+    ("Application import service handles fixture directory", ApplicationImportServiceHandlesFixtureDirectory),
+    ("Application import service diagnoses unknown XML", ApplicationImportServiceDiagnosesUnknownXml),
+    ("Safe export writes atomically and protects source", SafeExportWritesAtomicallyAndProtectsSource),
+    ("Failed safe export cleans temporary files", FailedSafeExportCleansTemporaryFiles),
+    ("Safe export rejects Windows reserved names", SafeExportRejectsWindowsReservedNames),
 };
 
 var failures = new List<string>();
@@ -410,12 +422,183 @@ static void RazerXmlExportRejectsExtendedKey()
     Assert(output.Length == 0, "Failed extended-key export must not write output.");
 }
 
+static void XmbcRandomDelayRoundTrips()
+{
+    using var input = new MemoryStream(Encoding.UTF8.GetBytes("{WAITMS:10-20}"));
+    var imported = new XmbcMacroTextImporter().ImportAsync(input, "random.txt").GetAwaiter().GetResult();
+    var document = imported.Documents.Single();
+    var randomDelay = document.Events.OfType<RandomDelayMacroEvent>().Single();
+    Assert(randomDelay.MinimumMilliseconds == 10 && randomDelay.MaximumMilliseconds == 20, "Random delay range changed.");
+    Assert(!new MacroValidator().Validate(document).HasErrors, "Valid random delay should validate.");
+
+    using var output = new MemoryStream();
+    var diagnostics = new XmbcMacroTextExporter().ExportAsync(document, output).GetAwaiter().GetResult();
+    Assert(!diagnostics.Any(item => item.Severity == XMacroBridge.Core.Diagnostics.DiagnosticSeverity.Error), "Random delay XMBC export should succeed.");
+    Assert(Encoding.UTF8.GetString(output.ToArray()) == "{WAITMS:10-20}", "Random delay text changed.");
+}
+
+static void XmbcInvalidRandomDelayIsRejected()
+{
+    var document = CreateDocument(new RandomDelayMacroEvent(0, 20, 10));
+    var result = new MacroValidator().Validate(document);
+    Assert(result.Diagnostics.Any(item => item.Code == "RANDOM_DELAY_RANGE_INVALID"), "Invalid random delay diagnostic is absent.");
+}
+
+static void XmbcScanCodesRoundTrip()
+{
+    const string text = "{PRESS}{SC:30}{RELEASE}{SC:30}{PRESS}{SCE:28}{RELEASE}{SCE:28}";
+    using var input = new MemoryStream(Encoding.UTF8.GetBytes(text));
+    var imported = new XmbcMacroTextImporter().ImportAsync(input, "scan.txt").GetAwaiter().GetResult();
+    var document = imported.Documents.Single();
+    Assert(document.Events.OfType<ScanCodeMacroEvent>().Count() == 4, "Expected four scan-code transitions.");
+    Assert(document.Events.OfType<ScanCodeMacroEvent>().Any(item => item.IsExtended), "Extended scan code was not preserved.");
+    Assert(!new MacroValidator().Validate(document).HasErrors, "Scan-code sequence should validate.");
+
+    using var output = new MemoryStream();
+    var diagnostics = new XmbcMacroTextExporter().ExportAsync(document, output).GetAwaiter().GetResult();
+    Assert(!diagnostics.Any(item => item.Severity == XMacroBridge.Core.Diagnostics.DiagnosticSeverity.Error), "Scan-code XMBC export should succeed.");
+    output.Position = 0;
+    var roundTrip = new XmbcMacroTextImporter().ImportAsync(output, "scan-roundtrip.txt").GetAwaiter().GetResult();
+    Assert(EventSignatures(roundTrip.Documents.Single()).SequenceEqual(EventSignatures(document)), "Scan-code round trip changed events.");
+}
+
+static void XmbcCommandsArePreservedAndBlockedForRazer()
+{
+    const string text = "{MADD:10,-5}{RUN:C:\\Tool.exe}{LAYER:next}{OD}";
+    using var input = new MemoryStream(Encoding.UTF8.GetBytes(text));
+    var imported = new XmbcMacroTextImporter().ImportAsync(input, "commands.txt").GetAwaiter().GetResult();
+    var document = imported.Documents.Single();
+    Assert(document.Events.OfType<XmbcCommandMacroEvent>().Count() == 4, "Expected four preserved XMBC commands.");
+    Assert(!new MacroValidator().Validate(document).HasErrors, "Preserved XMBC commands are valid source events.");
+
+    using var xmbcOutput = new MemoryStream();
+    var xmbcDiagnostics = new XmbcMacroTextExporter().ExportAsync(document, xmbcOutput).GetAwaiter().GetResult();
+    Assert(!xmbcDiagnostics.Any(item => item.Severity == XMacroBridge.Core.Diagnostics.DiagnosticSeverity.Error), "XMBC command re-export should succeed.");
+    Assert(Encoding.UTF8.GetString(xmbcOutput.ToArray()) == text, "XMBC commands were not preserved exactly.");
+
+    using var razerOutput = new MemoryStream();
+    var razerDiagnostics = new RazerMacroXmlExporter().ExportAsync(document, razerOutput).GetAwaiter().GetResult();
+    Assert(razerDiagnostics.Any(item => item.Code == "RAZER_EXPORT_XMBC_COMMAND_UNSUPPORTED"), "Razer command incompatibility is absent.");
+    Assert(razerOutput.Length == 0, "Incompatible command export must not write Razer XML.");
+}
+
+static void ApplicationImportServiceHandlesFixtureDirectory()
+{
+    var tempDirectory = CreateTemporaryDirectory();
+    try
+    {
+        foreach (var name in new[] { "basic-key-delay.xml", "nested-macros.synapse4", "basic-key-delay.txt", "settings-action28.xml" })
+        {
+            File.Copy(Path.Combine(AppContext.BaseDirectory, "Fixtures", name), Path.Combine(tempDirectory, name));
+        }
+
+        var service = new MacroImportService(MacroFormatRegistry.CreateDefault());
+        var result = service.ImportAsync([tempDirectory]).GetAwaiter().GetResult();
+        Assert(result.ProcessedFiles.Count == 4, "Expected four processed fixture files.");
+        Assert(result.Documents.Count == 8, "Expected eight macros from all fixture formats.");
+        Assert(!result.Diagnostics.Any(item => item.Severity == XMacroBridge.Core.Diagnostics.DiagnosticSeverity.Error), "Fixture directory import should not contain errors.");
+    }
+    finally
+    {
+        Directory.Delete(tempDirectory, true);
+    }
+}
+
+static void ApplicationImportServiceDiagnosesUnknownXml()
+{
+    var tempDirectory = CreateTemporaryDirectory();
+    try
+    {
+        var filePath = Path.Combine(tempDirectory, "unknown.xml");
+        File.WriteAllText(filePath, "<unknown />", Encoding.UTF8);
+        var service = new MacroImportService(MacroFormatRegistry.CreateDefault());
+        var result = service.ImportAsync([filePath]).GetAwaiter().GetResult();
+        Assert(result.Diagnostics.Any(item => item.Code == "IMPORT_FORMAT_UNSUPPORTED"), "Unknown format diagnostic is absent.");
+    }
+    finally
+    {
+        Directory.Delete(tempDirectory, true);
+    }
+}
+
+static void SafeExportWritesAtomicallyAndProtectsSource()
+{
+    var tempDirectory = CreateTemporaryDirectory();
+    try
+    {
+        var targetPath = Path.Combine(tempDirectory, "export.xml");
+        var document = CreateDocument(
+            new KeyMacroEvent(0, 65, InputTransition.Down),
+            new KeyMacroEvent(1, 65, InputTransition.Up));
+        var service = new SafeExportService(MacroFormatRegistry.CreateDefault());
+        var result = service.ExportAsync(document, "razer.macro.xml", targetPath).GetAwaiter().GetResult();
+        Assert(result.Succeeded && File.Exists(targetPath), "Safe export did not create the target.");
+        Assert(!Directory.EnumerateFiles(tempDirectory, "*.tmp").Any(), "Successful export left a temporary file.");
+
+        var sourceDocument = document with { SourcePath = targetPath };
+        var blocked = service.ExportAsync(sourceDocument, "razer.macro.xml", targetPath, overwrite: true).GetAwaiter().GetResult();
+        Assert(!blocked.Succeeded, "Source overwrite must be blocked.");
+        Assert(blocked.Diagnostics.Any(item => item.Code == "EXPORT_SOURCE_OVERWRITE_BLOCKED"), "Source protection diagnostic is absent.");
+    }
+    finally
+    {
+        Directory.Delete(tempDirectory, true);
+    }
+}
+
+static void FailedSafeExportCleansTemporaryFiles()
+{
+    var tempDirectory = CreateTemporaryDirectory();
+    try
+    {
+        var targetPath = Path.Combine(tempDirectory, "failed.xml");
+        var document = CreateDocument(new XmbcCommandMacroEvent(0, "{LAYER:next}", "layer"));
+        var service = new SafeExportService(MacroFormatRegistry.CreateDefault());
+        var result = service.ExportAsync(document, "razer.macro.xml", targetPath).GetAwaiter().GetResult();
+        Assert(!result.Succeeded && !File.Exists(targetPath), "Failed export created a target file.");
+        Assert(!Directory.EnumerateFiles(tempDirectory).Any(), "Failed export left temporary or backup files.");
+    }
+    finally
+    {
+        Directory.Delete(tempDirectory, true);
+    }
+}
+
+static void SafeExportRejectsWindowsReservedNames()
+{
+    var tempDirectory = CreateTemporaryDirectory();
+    try
+    {
+        var document = CreateDocument(
+            new KeyMacroEvent(0, 65, InputTransition.Down),
+            new KeyMacroEvent(1, 65, InputTransition.Up));
+        var service = new SafeExportService(MacroFormatRegistry.CreateDefault());
+        var result = service.ExportAsync(document, "razer.macro.xml", Path.Combine(tempDirectory, "CON.xml")).GetAwaiter().GetResult();
+        Assert(!result.Succeeded, "Windows reserved file name must be rejected.");
+        Assert(result.Diagnostics.Any(item => item.Code == "EXPORT_FILE_NAME_RESERVED"), "Reserved name diagnostic is absent.");
+    }
+    finally
+    {
+        Directory.Delete(tempDirectory, true);
+    }
+}
+
+static string CreateTemporaryDirectory()
+{
+    var path = Path.Combine(Path.GetTempPath(), "XMacroBridge.Tests", Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(path);
+    return path;
+}
+
 static IEnumerable<string> EventSignatures(MacroDocument document) =>
     document.Events.OrderBy(item => item.Sequence).Select(item => item switch
     {
         DelayMacroEvent delay => $"delay:{delay.Milliseconds}",
+        RandomDelayMacroEvent randomDelay => $"random-delay:{randomDelay.MinimumMilliseconds}:{randomDelay.MaximumMilliseconds}",
         KeyMacroEvent key => $"key:{key.VirtualKey}:{key.Transition}:{key.IsExtended}",
         MouseMacroEvent mouse => $"mouse:{mouse.Button}:{mouse.Transition}",
+        ScanCodeMacroEvent scanCode => $"scan:{scanCode.ScanCode}:{scanCode.Transition}:{scanCode.IsExtended}",
+        XmbcCommandMacroEvent command => $"xmbc-command:{command.Category}:{command.RawTag}",
         MacroReferenceEvent reference => $"reference:{reference.TargetGuid}:{reference.TargetIndex}",
         UnknownMacroEvent unknown => $"unknown:{unknown.SourceType}:{unknown.RawPayload}",
         _ => item.GetType().Name,

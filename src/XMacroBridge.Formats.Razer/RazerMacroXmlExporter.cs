@@ -44,6 +44,34 @@ public sealed class RazerMacroXmlExporter : IMacroExporter
             }
         }
 
+        foreach (var randomDelay in document.Events.OfType<RandomDelayMacroEvent>())
+        {
+            diagnostics.Add(new ConversionDiagnostic(
+                "RAZER_EXPORT_RANDOM_DELAY_UNSUPPORTED",
+                DiagnosticSeverity.Error,
+                "雷云独立宏 XML 无法等价表示 XMBC 随机延时。",
+                randomDelay.Sequence));
+        }
+
+        foreach (var scanCode in document.Events.OfType<ScanCodeMacroEvent>())
+        {
+            diagnostics.Add(new ConversionDiagnostic(
+                "RAZER_EXPORT_SCAN_CODE_UNSUPPORTED",
+                DiagnosticSeverity.Error,
+                "尚未确认雷云独立宏 XML 的扫描码事件编码。",
+                scanCode.Sequence));
+        }
+
+        foreach (var command in document.Events.OfType<XmbcCommandMacroEvent>())
+        {
+            diagnostics.Add(new ConversionDiagnostic(
+                "RAZER_EXPORT_XMBC_COMMAND_UNSUPPORTED",
+                DiagnosticSeverity.Error,
+                $"雷云宏无法等价表示 XMBC {command.Category} 命令。",
+                command.Sequence,
+                command.RawTag));
+        }
+
         if (diagnostics.Any(item => item.Severity == DiagnosticSeverity.Error))
         {
             return diagnostics;

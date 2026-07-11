@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>XMacroBridge.Application</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\XMacroBridge.Core\XMacroBridge.Core.csproj" />
+    <ProjectReference Include="..\XMacroBridge.Formats.Razer\XMacroBridge.Formats.Razer.csproj" />
+    <ProjectReference Include="..\XMacroBridge.Formats.Xmbc\XMacroBridge.Formats.Xmbc.csproj" />
+  </ItemGroup>
+</Project>

@@ -34,6 +34,13 @@ public sealed class XmbcMacroTextExporter : IMacroExporter
                         builder.Append(delay.Milliseconds.ToString(CultureInfo.InvariantCulture));
                         builder.Append('}');
                         break;
+                    case RandomDelayMacroEvent randomDelay:
+                        builder.Append("{WAITMS:");
+                        builder.Append(randomDelay.MinimumMilliseconds.ToString(CultureInfo.InvariantCulture));
+                        builder.Append('-');
+                        builder.Append(randomDelay.MaximumMilliseconds.ToString(CultureInfo.InvariantCulture));
+                        builder.Append('}');
+                        break;
                     case KeyMacroEvent key when TryFormatKey(key, out var keyText):
                         builder.Append(key.Transition == InputTransition.Down ? "{PRESS}" : "{RELEASE}");
                         builder.Append(keyText);
@@ -54,6 +61,15 @@ public sealed class XmbcMacroTextExporter : IMacroExporter
                             DiagnosticSeverity.Error,
                             $"XMBC 文本导出尚不支持鼠标按钮 {mouse.Button}。",
                             mouse.Sequence));
+                        break;
+                    case ScanCodeMacroEvent scanCode:
+                        builder.Append(scanCode.Transition == InputTransition.Down ? "{PRESS}" : "{RELEASE}");
+                        builder.Append(scanCode.IsExtended ? "{SCE:" : "{SC:");
+                        builder.Append(scanCode.ScanCode.ToString(CultureInfo.InvariantCulture));
+                        builder.Append('}');
+                        break;
+                    case XmbcCommandMacroEvent command:
+                        builder.Append(command.RawTag);
                         break;
                 }
             }

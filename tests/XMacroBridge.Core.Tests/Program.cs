@@ -85,6 +85,7 @@ var tests = new (string Name, Action Run)[]
     ("Workspace inserts parameterized mouse events", WorkspaceInsertsParameterizedMouseEvents),
     ("Workspace searches timeline events and cycles selection", WorkspaceSearchesTimelineEventsAndCyclesSelection),
     ("Workspace searches 100k events within resource budget", WorkspaceSearchesMaximumEventCountWithinResourceBudget),
+    ("Workspace repeated search editing remains stable", WorkspaceRepeatedSearchEditingRemainsStable),
 };
 
 var failures = new List<string>();
@@ -1115,6 +1116,56 @@ static void WorkspaceSearchesMaximumEventCountWithinResourceBudget()
     Assert(viewModel.SelectedEvent?.DisplayIndex == 99_999, "Maximum-size search selected the wrong event.");
     Assert(stopwatch.Elapsed < TimeSpan.FromSeconds(5), $"Maximum-size search took {stopwatch.Elapsed.TotalMilliseconds:F0} ms.");
     Assert(allocatedBytes < 1_000_000, $"Maximum-size search allocated {allocatedBytes:N0} bytes.");
+}
+
+static void WorkspaceRepeatedSearchEditingRemainsStable()
+{
+    const int eventCount = 5_000;
+    const int iterations = 100;
+    var events = new MacroEvent[eventCount];
+    for (var index = 0; index < events.Length; index++)
+    {
+        events[index] = new DelayMacroEvent(index, index);
+    }
+
+    var original = CreateNamedDocument("重复搜索编辑", events);
+    var viewModel = WorkspaceViewModel.CreateDefault();
+    viewModel.Macros.Add(original);
+    viewModel.SelectedMacro = original;
+    viewModel.EventSearchText = (eventCount - 1).ToString();
+    Assert(viewModel.FindNextEvent(), "Initial stress-test search did not find the final event.");
+    Assert(viewModel.SelectedEvent?.DisplayIndex == eventCount - 1, "Initial stress-test selection is incorrect.");
+
+    var retainedBefore = GC.GetTotalMemory(forceFullCollection: true);
+    var stopwatch = Stopwatch.StartNew();
+    for (var iteration = 0; iteration < iterations; iteration++)
+    {
+        Assert(viewModel.DeleteSelectedEvent(), $"Stress-test delete failed at iteration {iteration}.");
+        Assert(viewModel.Events.Count == eventCount - 1, "Stress-test delete produced the wrong event count.");
+        Assert(viewModel.EventSearchResultText == "0 / 0", "Deleted search result remained in the search index.");
+
+        Assert(viewModel.Undo(), $"Stress-test undo failed at iteration {iteration}.");
+        Assert(viewModel.Events.Count == eventCount, "Stress-test undo did not restore the event count.");
+        Assert(viewModel.SelectedEvent?.DisplayIndex == eventCount - 1, "Stress-test undo did not restore selection.");
+        Assert(viewModel.EventSearchResultText == "1 / 1", "Stress-test undo did not rebuild the search index.");
+
+        Assert(viewModel.Redo(), $"Stress-test redo failed at iteration {iteration}.");
+        Assert(viewModel.Events.Count == eventCount - 1, "Stress-test redo produced the wrong event count.");
+        Assert(viewModel.EventSearchResultText == "0 / 0", "Stress-test redo retained a stale search result.");
+
+        Assert(viewModel.Undo(), $"Stress-test final undo failed at iteration {iteration}.");
+        Assert(viewModel.Events.Count == eventCount, "Stress-test final undo did not restore the event count.");
+        Assert(viewModel.SelectedEvent?.DisplayIndex == eventCount - 1, "Stress-test final undo did not restore selection.");
+        Assert(viewModel.EventSearchResultText == "1 / 1", "Stress-test final undo did not restore the search result.");
+    }
+
+    stopwatch.Stop();
+    var retainedAfter = GC.GetTotalMemory(forceFullCollection: true);
+    var retainedGrowth = Math.Max(0, retainedAfter - retainedBefore);
+    Assert(ReferenceEquals(viewModel.SelectedMacro, original), "Repeated undo did not restore the original immutable macro snapshot.");
+    Assert(viewModel.Diagnostics.Count == 0, "Repeated valid edits accumulated unexpected diagnostics.");
+    Assert(stopwatch.Elapsed < TimeSpan.FromSeconds(30), $"Repeated search editing took {stopwatch.Elapsed.TotalSeconds:F1} seconds.");
+    Assert(retainedGrowth < 64L * 1024 * 1024, $"Repeated search editing retained {retainedGrowth:N0} bytes after full GC.");
 }
 
 static void WorkspaceExpandsNestedMacrosBeforeExport()

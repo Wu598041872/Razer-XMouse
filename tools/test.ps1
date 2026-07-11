@@ -23,4 +23,29 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 & $dotnet run --project (Join-Path $projectRoot 'tests\XMacroBridge.Core.Tests\XMacroBridge.Core.Tests.csproj') -c $Configuration --no-build
-exit $LASTEXITCODE
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+$devLogDate = [datetime]'2099-01-01'
+$devLogPath = Join-Path $projectRoot 'devlogs\2099\2099-01-01.md'
+try {
+    & (Join-Path $projectRoot 'tools\devlog\Update-DevLog.ps1') -Mode DailySummary -Date $devLogDate | Out-Null
+    & (Join-Path $projectRoot 'tools\devlog\Update-DevLog.ps1') -Mode DailySummary -Date $devLogDate | Out-Null
+    $content = Get-Content -Raw -Encoding UTF8 -LiteralPath $devLogPath
+    if ($content.Contains('Git 不可用或当前目录尚未初始化为仓库。')) {
+        throw '日报将干净 Git 仓库误判为不可用。'
+    }
+    if (([regex]::Matches($content, '<!-- AUTO-SUMMARY:START -->')).Count -ne 1 -or
+        ([regex]::Matches($content, '<!-- AUTO-SUMMARY:END -->')).Count -ne 1) {
+        throw '日报自动汇总标记不是单例。'
+    }
+    Write-Output 'PASS Daily log clean-repository regression'
+}
+finally {
+    Remove-Item -LiteralPath $devLogPath -Force -ErrorAction SilentlyContinue
+    $yearDirectory = Split-Path -Parent $devLogPath
+    if ((Test-Path -LiteralPath $yearDirectory) -and -not (Get-ChildItem -Force -LiteralPath $yearDirectory)) {
+        Remove-Item -LiteralPath $yearDirectory -Force
+    }
+}
+
+exit 0

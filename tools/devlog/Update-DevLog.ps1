@@ -129,7 +129,7 @@ function Invoke-GitRead {
 
     $git = Get-Command git -ErrorAction SilentlyContinue
     if (-not $git -or -not (Test-Path -LiteralPath (Join-Path $script:ProjectRoot '.git'))) {
-        return $null
+        return [pscustomobject]@{ Success = $false; Lines = @() }
     }
 
     $previousErrorAction = $ErrorActionPreference
@@ -143,10 +143,10 @@ function Invoke-GitRead {
     }
 
     if ($exitCode -ne 0) {
-        return $null
+        return [pscustomobject]@{ Success = $false; Lines = @() }
     }
 
-    return @($output)
+    return [pscustomobject]@{ Success = $true; Lines = @($output) }
 }
 
 function Get-ProjectTodo {
@@ -217,20 +217,23 @@ $(Convert-ToBulletList -Items $Todo -EmptyText '暂无。')
     }
     else {
         $nextDate = $dateOnly.AddDays(1)
+        $repository = Invoke-GitRead -Arguments @('rev-parse', '--is-inside-work-tree')
         $head = Invoke-GitRead -Arguments @('rev-parse', '--verify', 'HEAD')
-        if ($null -eq $head) {
+        if (-not $head.Success) {
             $commits = @()
         }
         else {
-            $commits = Invoke-GitRead -Arguments @(
+            $commitResult = Invoke-GitRead -Arguments @(
                 'log',
                 ('--since=' + $dateOnly.ToString('yyyy-MM-ddT00:00:00')),
                 ('--until=' + $nextDate.ToString('yyyy-MM-ddT00:00:00')),
                 '--pretty=format:%h %s'
             )
+            $commits = $commitResult.Lines
         }
-        $changes = Invoke-GitRead -Arguments @('status', '--short', '--untracked-files=all')
-        $gitAvailable = ($null -ne $commits -and $null -ne $changes)
+        $changeResult = Invoke-GitRead -Arguments @('status', '--short', '--untracked-files=all')
+        $changes = $changeResult.Lines
+        $gitAvailable = ($repository.Success -and $changeResult.Success)
 
         if (-not $gitAvailable) {
             $commitText = '- Git 不可用或当前目录尚未初始化为仓库。'

@@ -101,6 +101,8 @@ public partial class MainWindow : Window
 
     private void Window_Closing(object? sender, CancelEventArgs e) => viewModel.Cancel();
 
+    internal async void ImportStartupPaths(IEnumerable<string> paths) => await ImportPathsAsync(paths);
+
     private async Task ImportPathsAsync(IEnumerable<string> paths)
     {
         try

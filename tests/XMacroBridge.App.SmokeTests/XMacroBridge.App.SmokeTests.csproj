@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>XMacroBridge.App.SmokeTests</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\XMacroBridge.App\XMacroBridge.App.csproj" />
+    <ProjectReference Include="..\..\src\XMacroBridge.Presentation\XMacroBridge.Presentation.csproj" />
+  </ItemGroup>
+</Project>

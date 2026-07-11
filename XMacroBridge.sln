@@ -16,6 +16,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "XMacroBridge.Application", 
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "XMacroBridge.Presentation", "src\XMacroBridge.Presentation\XMacroBridge.Presentation.csproj", "{951A21A6-634D-48B0-A813-3EEFDCE566C9}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "XMacroBridge.App.SmokeTests", "tests\XMacroBridge.App.SmokeTests\XMacroBridge.App.SmokeTests.csproj", "{B48E9D57-E7AA-4AF5-98D3-A14633D9A8B2}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -50,5 +52,9 @@ Global
 		{951A21A6-634D-48B0-A813-3EEFDCE566C9}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{951A21A6-634D-48B0-A813-3EEFDCE566C9}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{951A21A6-634D-48B0-A813-3EEFDCE566C9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B48E9D57-E7AA-4AF5-98D3-A14633D9A8B2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B48E9D57-E7AA-4AF5-98D3-A14633D9A8B2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B48E9D57-E7AA-4AF5-98D3-A14633D9A8B2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B48E9D57-E7AA-4AF5-98D3-A14633D9A8B2}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

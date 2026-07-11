@@ -73,12 +73,14 @@
                             <ColumnDefinition Width="8" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
-                        <Button Grid.Column="0"
+                        <Button x:Name="ImportFilesButton"
+                                Grid.Column="0"
                                 Click="ImportFiles_Click"
                                 Content="选择文件"
                                 IsEnabled="{Binding CanImport}"
                                 Style="{StaticResource PrimaryButtonStyle}" />
-                        <Button Grid.Column="2"
+                        <Button x:Name="ImportFolderButton"
+                                Grid.Column="2"
                                 Click="ImportFolder_Click"
                                 Content="选择文件夹"
                                 IsEnabled="{Binding CanImport}"
@@ -96,7 +98,8 @@
                                    Text="{Binding MacroCountText}" />
                     </Grid>
 
-                    <ListBox Grid.Row="6"
+                    <ListBox x:Name="MacroList"
+                             Grid.Row="6"
                              ItemsSource="{Binding Macros}"
                              SelectedItem="{Binding SelectedMacro, Mode=TwoWay}"
                              Background="Transparent"
@@ -201,7 +204,8 @@
                             </Border>
                         </StackPanel>
 
-                        <Button Grid.Column="4"
+                        <Button x:Name="ExportButton"
+                                Grid.Column="4"
                                 MinWidth="116"
                                 VerticalAlignment="Bottom"
                                 Click="Export_Click"
@@ -231,7 +235,8 @@
                                        Text="只读预览 · 编辑器将在后续阶段开放" />
                         </Grid>
 
-                        <DataGrid Grid.Row="2"
+                        <DataGrid x:Name="EventTimeline"
+                                  Grid.Row="2"
                                   ItemsSource="{Binding Events}"
                                   AutoGenerateColumns="False"
                                   IsReadOnly="True"
@@ -310,7 +315,8 @@
                                     BorderBrush="{DynamicResource DividerBrush}"
                                     BorderThickness="1"
                                     CornerRadius="9">
-                                <ComboBox ItemsSource="{Binding DiagnosticSeverityOptions}"
+                                <ComboBox x:Name="DiagnosticSeverityFilter"
+                                          ItemsSource="{Binding DiagnosticSeverityOptions}"
                                           DisplayMemberPath="DisplayName"
                                           SelectedItem="{Binding SelectedDiagnosticSeverity, Mode=TwoWay}"
                                           Background="Transparent"
@@ -323,7 +329,8 @@
                                     BorderBrush="{DynamicResource DividerBrush}"
                                     BorderThickness="1"
                                     CornerRadius="9">
-                                <ComboBox ItemsSource="{Binding DiagnosticScopes}"
+                                <ComboBox x:Name="DiagnosticScopeFilter"
+                                          ItemsSource="{Binding DiagnosticScopes}"
                                           DisplayMemberPath="DisplayName"
                                           SelectedItem="{Binding SelectedDiagnosticScope, Mode=TwoWay}"
                                           Background="Transparent"
@@ -352,7 +359,8 @@
 
                             <ScrollViewer VerticalScrollBarVisibility="Auto"
                                           HorizontalScrollBarVisibility="Disabled">
-                                <ItemsControl ItemsSource="{Binding DiagnosticGroups}">
+                                <ItemsControl x:Name="DiagnosticGroupList"
+                                              ItemsSource="{Binding DiagnosticGroups}">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
                                             <StackPanel Margin="0,0,0,10">
@@ -441,7 +449,8 @@
                                              Foreground="{DynamicResource AccentBrush}"
                                              Background="{DynamicResource DividerBrush}" />
                             </StackPanel>
-                            <Button Grid.Column="1"
+                            <Button x:Name="CancelButton"
+                                    Grid.Column="1"
                                     Margin="12,0,0,0"
                                     MinWidth="72"
                                     VerticalAlignment="Bottom"

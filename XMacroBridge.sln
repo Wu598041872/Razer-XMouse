@@ -1,0 +1,24 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "XMacroBridge.Core", "src\XMacroBridge.Core\XMacroBridge.Core.csproj", "{B7D33727-2C23-4CAC-B65F-4F0790CB6851}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "XMacroBridge.App", "src\XMacroBridge.App\XMacroBridge.App.csproj", "{AB014962-3684-4AD3-81BD-ED31E9E9DB29}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{B7D33727-2C23-4CAC-B65F-4F0790CB6851}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B7D33727-2C23-4CAC-B65F-4F0790CB6851}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B7D33727-2C23-4CAC-B65F-4F0790CB6851}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B7D33727-2C23-4CAC-B65F-4F0790CB6851}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AB014962-3684-4AD3-81BD-ED31E9E9DB29}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AB014962-3684-4AD3-81BD-ED31E9E9DB29}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AB014962-3684-4AD3-81BD-ED31E9E9DB29}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AB014962-3684-4AD3-81BD-ED31E9E9DB29}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

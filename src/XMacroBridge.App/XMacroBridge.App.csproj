@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>XMacroBridge.App</RootNamespace>
+    <ApplicationIcon Condition="Exists('Assets\\XMacroBridge.ico')">Assets\XMacroBridge.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\XMacroBridge.Core\XMacroBridge.Core.csproj" />
+  </ItemGroup>
+</Project>

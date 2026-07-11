@@ -1,0 +1,27 @@
+# User-owned macro data (never commit automatically)
+/我的宏/
+
+# Build output
+**/bin/
+**/obj/
+/artifacts/
+/publish/
+
+# IDE and user settings
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# Local logs, caches, and atomic-write artifacts
+/Data/
+/devlogs/.update.lock
+/devlogs/*.tmp
+/devlogs/**/*.tmp
+/devlogs/**/*.bak
+
+# OS files
+Thumbs.db
+Desktop.ini
+.DS_Store

@@ -14,18 +14,23 @@
         <SolidColorBrush x:Key="ErrorBrush" Color="#FFD70015" />
         <SolidColorBrush x:Key="WarningBrush" Color="#FFB05A00" />
         <SolidColorBrush x:Key="SuccessBrush" Color="#FF19753B" />
+        <SolidColorBrush x:Key="SurfaceSecondaryBrush" Color="#FFF2F2F7" />
+        <SolidColorBrush x:Key="CardBorderBrush" Color="#0D000000" />
+        <SolidColorBrush x:Key="AlternateRowBrush" Color="#66F5F5F7" />
+        <SolidColorBrush x:Key="DiagnosticSurfaceBrush" Color="#FFF8F8FA" />
+        <SolidColorBrush x:Key="SuccessSurfaceBrush" Color="#FFEAF7EE" />
 
         <Style TargetType="Window">
             <Setter Property="FontFamily" Value="Segoe UI Variable Text, Microsoft YaHei UI" />
-            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
             <Setter Property="TextOptions.TextFormattingMode" Value="Display" />
             <Setter Property="TextOptions.TextRenderingMode" Value="ClearType" />
         </Style>
 
         <Style x:Key="CardStyle" TargetType="Border">
-            <Setter Property="Background" Value="{StaticResource CardBrush}" />
+            <Setter Property="Background" Value="{DynamicResource CardBrush}" />
             <Setter Property="CornerRadius" Value="18" />
-            <Setter Property="BorderBrush" Value="#0D000000" />
+            <Setter Property="BorderBrush" Value="{DynamicResource CardBorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
         </Style>
 
@@ -37,7 +42,7 @@
 
         <Style x:Key="CaptionStyle" TargetType="TextBlock">
             <Setter Property="FontSize" Value="12" />
-            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
         </Style>
 
         <Style x:Key="BaseButtonStyle" TargetType="Button">
@@ -67,7 +72,7 @@
                                 <Setter TargetName="ButtonBorder" Property="Opacity" Value="0.72" />
                             </Trigger>
                             <Trigger Property="IsKeyboardFocused" Value="True">
-                                <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
                                 <Setter TargetName="ButtonBorder" Property="BorderThickness" Value="2" />
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
@@ -81,16 +86,16 @@
         </Style>
 
         <Style x:Key="PrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource BaseButtonStyle}">
-            <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+            <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
             <Setter Property="Foreground" Value="White" />
-            <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
             <Setter Property="BorderThickness" Value="1" />
         </Style>
 
         <Style x:Key="SecondaryButtonStyle" TargetType="Button" BasedOn="{StaticResource BaseButtonStyle}">
-            <Setter Property="Background" Value="#FFF2F2F7" />
-            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
-            <Setter Property="BorderBrush" Value="{StaticResource DividerBrush}" />
+            <Setter Property="Background" Value="{DynamicResource SurfaceSecondaryBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource DividerBrush}" />
             <Setter Property="BorderThickness" Value="1" />
         </Style>
     </Application.Resources>

@@ -2,6 +2,7 @@ using XMacroBridge.Application.Exporting;
 using XMacroBridge.Application.Formats;
 using XMacroBridge.Application.Importing;
 using XMacroBridge.Core.Conversion;
+using XMacroBridge.Core.Diagnostics;
 using XMacroBridge.Core.Models;
 using XMacroBridge.Formats.Razer;
 using XMacroBridge.Formats.Xmbc;
@@ -52,6 +53,7 @@ var tests = new (string Name, Action Run)[]
     ("Workspace expands nested macros before export", WorkspaceExpandsNestedMacrosBeforeExport),
     ("Workspace exports both supported target formats", WorkspaceExportsBothSupportedTargetFormats),
     ("Workspace blocks invalid selection and reports missing selection", WorkspaceBlocksInvalidAndMissingSelection),
+    ("Workspace filters and groups diagnostics", WorkspaceFiltersAndGroupsDiagnostics),
 };
 
 var failures = new List<string>();
@@ -700,6 +702,41 @@ static void WorkspaceBlocksInvalidAndMissingSelection()
     {
         Directory.Delete(tempDirectory, true);
     }
+}
+
+static void WorkspaceFiltersAndGroupsDiagnostics()
+{
+    var viewModel = WorkspaceViewModel.CreateDefault();
+    viewModel.Diagnostics.Add(new ConversionDiagnostic(
+        "FIRST_ERROR",
+        DiagnosticSeverity.Error,
+        "First error.",
+        SourceContext: "宏 A"));
+    viewModel.Diagnostics.Add(new ConversionDiagnostic(
+        "FIRST_WARNING",
+        DiagnosticSeverity.Warning,
+        "First warning.",
+        SourceContext: "宏 A"));
+    viewModel.Diagnostics.Add(new ConversionDiagnostic(
+        "SECOND_ERROR",
+        DiagnosticSeverity.Error,
+        "Second error.",
+        SourceContext: "文件 B.xml"));
+
+    Assert(viewModel.DiagnosticGroups.Count == 2, "Diagnostics should be grouped by source context.");
+    Assert(viewModel.FilteredDiagnosticCount == 3, "All diagnostics should be visible initially.");
+
+    viewModel.SelectedDiagnosticSeverity = viewModel.DiagnosticSeverityOptions.Single(item => item.Severity == DiagnosticSeverity.Error);
+    Assert(viewModel.FilteredDiagnosticCount == 2, "Severity filter did not retain only errors.");
+    Assert(viewModel.DiagnosticGroups.All(group => group.Diagnostics.All(item => item.Severity == DiagnosticSeverity.Error)), "Filtered groups contain a non-error diagnostic.");
+
+    viewModel.SelectedDiagnosticScope = viewModel.DiagnosticScopes.Single(item => item.SourceContext == "宏 A");
+    Assert(viewModel.FilteredDiagnosticCount == 1, "Source filter did not isolate the selected macro.");
+    Assert(viewModel.DiagnosticCountText == "显示 1 / 3 条", "Filtered diagnostic summary is incorrect.");
+
+    viewModel.Diagnostics.Clear();
+    Assert(!viewModel.HasFilteredDiagnostics, "Empty diagnostics should expose an empty state.");
+    Assert(viewModel.SelectedDiagnosticScope.SourceContext is null, "Clearing diagnostics should reset the source filter.");
 }
 
 static string CreateFixtureDirectory()

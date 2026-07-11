@@ -7,7 +7,7 @@
         MinWidth="1040"
         MinHeight="680"
         WindowStartupLocation="CenterScreen"
-        Background="{StaticResource PageBrush}"
+        Background="{DynamicResource PageBrush}"
         AllowDrop="True"
         Closing="Window_Closing"
         DragOver="Window_DragOver"
@@ -30,16 +30,16 @@
                            FontWeight="SemiBold"
                            Text="XMacro Bridge" />
                 <TextBlock Margin="0,4,0,0"
-                           Foreground="{StaticResource TextSecondaryBrush}"
+                           Foreground="{DynamicResource TextSecondaryBrush}"
                            FontSize="13"
                            Text="雷云 4 与 X-Mouse 宏的离线、安全转换工作区" />
             </StackPanel>
             <Border Grid.Column="1"
                     Padding="12,7"
                     VerticalAlignment="Center"
-                    Background="#FFEAF7EE"
+                    Background="{DynamicResource SuccessSurfaceBrush}"
                     CornerRadius="12">
-                <TextBlock Foreground="{StaticResource SuccessBrush}"
+                <TextBlock Foreground="{DynamicResource SuccessBrush}"
                            FontSize="12"
                            FontWeight="SemiBold"
                            Text="●  本地离线处理" />
@@ -119,13 +119,13 @@
                                             </Border>
                                             <ControlTemplate.Triggers>
                                                 <Trigger Property="IsMouseOver" Value="True">
-                                                    <Setter TargetName="ItemBorder" Property="Background" Value="#FFF2F2F7" />
+                                                    <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource SurfaceSecondaryBrush}" />
                                                 </Trigger>
                                                 <Trigger Property="IsSelected" Value="True">
-                                                    <Setter TargetName="ItemBorder" Property="Background" Value="{StaticResource SelectionBrush}" />
+                                                    <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource SelectionBrush}" />
                                                 </Trigger>
                                                 <Trigger Property="IsKeyboardFocused" Value="True">
-                                                    <Setter TargetName="ItemBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                                    <Setter TargetName="ItemBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
                                                     <Setter TargetName="ItemBorder" Property="BorderThickness" Value="1" />
                                                 </Trigger>
                                             </ControlTemplate.Triggers>
@@ -144,7 +144,7 @@
                                                ToolTip="{Binding Name}" />
                                     <TextBlock Margin="0,4,0,0"
                                                FontSize="11"
-                                               Foreground="{StaticResource TextSecondaryBrush}"
+                                               Foreground="{DynamicResource TextSecondaryBrush}"
                                                Text="{Binding SourceFormat, TargetNullValue=未知来源}" />
                                 </StackPanel>
                             </DataTemplate>
@@ -159,7 +159,7 @@
                     <RowDefinition Height="16" />
                     <RowDefinition Height="*" />
                     <RowDefinition Height="16" />
-                    <RowDefinition Height="220" />
+                    <RowDefinition Height="250" />
                 </Grid.RowDefinitions>
 
                 <Border Grid.Row="0" Style="{StaticResource CardStyle}" Padding="18,16">
@@ -187,8 +187,8 @@
                             <TextBlock Style="{StaticResource CaptionStyle}" Text="目标格式" />
                             <Border Margin="0,5,0,0"
                                     Padding="8,1"
-                                    Background="#FFF2F2F7"
-                                    BorderBrush="{StaticResource DividerBrush}"
+                                    Background="{DynamicResource SurfaceSecondaryBrush}"
+                                    BorderBrush="{DynamicResource DividerBrush}"
                                     BorderThickness="1"
                                     CornerRadius="10">
                                 <ComboBox ItemsSource="{Binding ExportFormats}"
@@ -240,11 +240,11 @@
                                   CanUserReorderColumns="False"
                                   HeadersVisibility="Column"
                                   GridLinesVisibility="Horizontal"
-                                  HorizontalGridLinesBrush="#FFF0F0F2"
+                                  HorizontalGridLinesBrush="{DynamicResource DividerBrush}"
                                   BorderThickness="0"
                                   Background="Transparent"
                                   RowBackground="Transparent"
-                                  AlternatingRowBackground="#66F5F5F7"
+                                  AlternatingRowBackground="{DynamicResource AlternateRowBrush}"
                                   RowHeaderWidth="0"
                                   ColumnHeaderHeight="34"
                                   RowHeight="36"
@@ -253,11 +253,11 @@
                             <DataGrid.Resources>
                                 <Style TargetType="DataGridColumnHeader">
                                     <Setter Property="Background" Value="Transparent" />
-                                    <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+                                    <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
                                     <Setter Property="FontSize" Value="12" />
                                     <Setter Property="FontWeight" Value="SemiBold" />
                                     <Setter Property="BorderThickness" Value="0,0,0,1" />
-                                    <Setter Property="BorderBrush" Value="{StaticResource DividerBrush}" />
+                                    <Setter Property="BorderBrush" Value="{DynamicResource DividerBrush}" />
                                     <Setter Property="Padding" Value="10,0" />
                                 </Style>
                                 <Style TargetType="DataGridCell">
@@ -280,7 +280,9 @@
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
-                            <RowDefinition Height="10" />
+                            <RowDefinition Height="8" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="8" />
                             <RowDefinition Height="*" />
                             <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
@@ -296,78 +298,148 @@
                                        Text="{Binding DiagnosticCountText}" />
                         </Grid>
 
-                        <ListBox Grid.Row="2"
-                                 ItemsSource="{Binding Diagnostics}"
-                                 Background="Transparent"
-                                 BorderThickness="0"
-                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                            <ListBox.ItemContainerStyle>
-                                <Style TargetType="ListBoxItem">
-                                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                                    <Setter Property="Padding" Value="0" />
-                                    <Setter Property="Margin" Value="0,0,0,6" />
-                                    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
-                                </Style>
-                            </ListBox.ItemContainerStyle>
-                            <ListBox.ItemTemplate>
-                                <DataTemplate>
-                                    <Border Padding="10,8" Background="#FFF8F8FA" CornerRadius="8">
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="76" />
-                                                <ColumnDefinition Width="138" />
-                                                <ColumnDefinition Width="*" />
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock FontSize="12" FontWeight="SemiBold">
-                                                <TextBlock.Style>
-                                                    <Style TargetType="TextBlock">
-                                                        <Setter Property="Text" Value="信息" />
-                                                        <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
-                                                        <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding Severity}" Value="Warning">
-                                                                <Setter Property="Text" Value="警告" />
-                                                                <Setter Property="Foreground" Value="{StaticResource WarningBrush}" />
-                                                            </DataTrigger>
-                                                            <DataTrigger Binding="{Binding Severity}" Value="Error">
-                                                                <Setter Property="Text" Value="错误" />
-                                                                <Setter Property="Foreground" Value="{StaticResource ErrorBrush}" />
-                                                            </DataTrigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </TextBlock.Style>
-                                            </TextBlock>
-                                            <TextBlock Grid.Column="1"
-                                                       FontFamily="Cascadia Mono, Consolas"
-                                                       FontSize="11"
-                                                       Foreground="{StaticResource TextSecondaryBrush}"
-                                                       Text="{Binding Code}"
-                                                       TextTrimming="CharacterEllipsis"
-                                                       ToolTip="{Binding Code}" />
-                                            <TextBlock Grid.Column="2"
-                                                       FontSize="12"
-                                                       Text="{Binding Message}"
-                                                       TextWrapping="Wrap" />
-                                        </Grid>
-                                    </Border>
-                                </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
+                        <Grid Grid.Row="2">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="160" />
+                                <ColumnDefinition Width="8" />
+                                <ColumnDefinition Width="260" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border Padding="8,0"
+                                    Background="{DynamicResource SurfaceSecondaryBrush}"
+                                    BorderBrush="{DynamicResource DividerBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="9">
+                                <ComboBox ItemsSource="{Binding DiagnosticSeverityOptions}"
+                                          DisplayMemberPath="DisplayName"
+                                          SelectedItem="{Binding SelectedDiagnosticSeverity, Mode=TwoWay}"
+                                          Background="Transparent"
+                                          BorderThickness="0"
+                                          Padding="2,5" />
+                            </Border>
+                            <Border Grid.Column="2"
+                                    Padding="8,0"
+                                    Background="{DynamicResource SurfaceSecondaryBrush}"
+                                    BorderBrush="{DynamicResource DividerBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="9">
+                                <ComboBox ItemsSource="{Binding DiagnosticScopes}"
+                                          DisplayMemberPath="DisplayName"
+                                          SelectedItem="{Binding SelectedDiagnosticScope, Mode=TwoWay}"
+                                          Background="Transparent"
+                                          BorderThickness="0"
+                                          Padding="2,5" />
+                            </Border>
+                        </Grid>
 
-                        <Grid Grid.Row="3" Margin="0,8,0,0">
+                        <Grid Grid.Row="4">
+                            <TextBlock HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       FontSize="12"
+                                       Text="当前筛选条件下没有诊断">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding HasFilteredDiagnostics}" Value="False">
+                                                <Setter Property="Visibility" Value="Visible" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+
+                            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled">
+                                <ItemsControl ItemsSource="{Binding DiagnosticGroups}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Margin="0,0,0,10">
+                                                <Grid Margin="2,0,2,5">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock FontSize="12"
+                                                               FontWeight="SemiBold"
+                                                               Text="{Binding Title}"
+                                                               TextTrimming="CharacterEllipsis"
+                                                               ToolTip="{Binding Title}" />
+                                                    <TextBlock Grid.Column="1"
+                                                               Foreground="{DynamicResource TextSecondaryBrush}"
+                                                               FontSize="11"
+                                                               Text="{Binding CountText}" />
+                                                </Grid>
+                                                <ItemsControl ItemsSource="{Binding Diagnostics}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Border Margin="0,0,0,5"
+                                                                    Padding="10,7"
+                                                                    Background="{DynamicResource DiagnosticSurfaceBrush}"
+                                                                    CornerRadius="8">
+                                                                <Grid>
+                                                                    <Grid.ColumnDefinitions>
+                                                                        <ColumnDefinition Width="62" />
+                                                                        <ColumnDefinition Width="138" />
+                                                                        <ColumnDefinition Width="*" />
+                                                                    </Grid.ColumnDefinitions>
+                                                                    <TextBlock FontSize="12" FontWeight="SemiBold">
+                                                                        <TextBlock.Style>
+                                                                            <Style TargetType="TextBlock">
+                                                                                <Setter Property="Text" Value="信息" />
+                                                                                <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+                                                                                <Style.Triggers>
+                                                                                    <DataTrigger Binding="{Binding Severity}" Value="Warning">
+                                                                                        <Setter Property="Text" Value="警告" />
+                                                                                        <Setter Property="Foreground" Value="{DynamicResource WarningBrush}" />
+                                                                                    </DataTrigger>
+                                                                                    <DataTrigger Binding="{Binding Severity}" Value="Error">
+                                                                                        <Setter Property="Text" Value="错误" />
+                                                                                        <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
+                                                                                    </DataTrigger>
+                                                                                </Style.Triggers>
+                                                                            </Style>
+                                                                        </TextBlock.Style>
+                                                                    </TextBlock>
+                                                                    <TextBlock Grid.Column="1"
+                                                                               FontFamily="Cascadia Mono, Consolas"
+                                                                               FontSize="11"
+                                                                               Foreground="{DynamicResource TextSecondaryBrush}"
+                                                                               Text="{Binding Code}"
+                                                                               TextTrimming="CharacterEllipsis"
+                                                                               ToolTip="{Binding Code}" />
+                                                                    <TextBlock Grid.Column="2"
+                                                                               FontSize="12"
+                                                                               Text="{Binding Message}"
+                                                                               TextWrapping="Wrap" />
+                                                                </Grid>
+                                                            </Border>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </Grid>
+
+                        <Grid Grid.Row="5" Margin="0,8,0,0">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <StackPanel>
                                 <TextBlock FontSize="12"
-                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           Foreground="{DynamicResource TextSecondaryBrush}"
                                            Text="{Binding StatusText}" />
                                 <ProgressBar Margin="0,7,0,0"
                                              Height="4"
                                              Maximum="100"
                                              Value="{Binding ProgressPercent, Mode=OneWay}"
-                                             Foreground="{StaticResource AccentBrush}"
-                                             Background="#FFE5E5EA" />
+                                             Foreground="{DynamicResource AccentBrush}"
+                                             Background="{DynamicResource DividerBrush}" />
                             </StackPanel>
                             <Button Grid.Column="1"
                                     Margin="12,0,0,0"

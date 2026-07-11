@@ -23,6 +23,8 @@ public sealed class WorkspaceViewModel : ObservableObject
     private bool selectedMacroHasBlockingErrors;
     private double progressPercent;
     private string statusText = "拖入宏文件或选择文件夹开始转换";
+    private DiagnosticSeverityOption selectedDiagnosticSeverity;
+    private DiagnosticScopeOption selectedDiagnosticScope;
 
     public WorkspaceViewModel(
         MacroImportService importService,
@@ -39,6 +41,17 @@ public sealed class WorkspaceViewModel : ObservableObject
             new ExportFormatOption("razer.macro.xml", "雷云 4 宏 XML", ".xml"),
             new ExportFormatOption("xmbc.macro.text", "X-Mouse 宏文本", ".txt"),
         ];
+        DiagnosticSeverityOptions =
+        [
+            new DiagnosticSeverityOption("全部级别", null),
+            new DiagnosticSeverityOption("仅错误", DiagnosticSeverity.Error),
+            new DiagnosticSeverityOption("仅警告", DiagnosticSeverity.Warning),
+            new DiagnosticSeverityOption("仅信息", DiagnosticSeverity.Info),
+        ];
+        selectedDiagnosticSeverity = DiagnosticSeverityOptions[0];
+        selectedDiagnosticScope = new DiagnosticScopeOption("全部来源", null);
+        DiagnosticScopes.Add(selectedDiagnosticScope);
+        Diagnostics.CollectionChanged += (_, _) => RebuildDiagnosticView();
     }
 
     public ObservableCollection<MacroDocument> Macros { get; } = [];
@@ -47,7 +60,13 @@ public sealed class WorkspaceViewModel : ObservableObject
 
     public ObservableCollection<ConversionDiagnostic> Diagnostics { get; } = [];
 
+    public ObservableCollection<DiagnosticGroup> DiagnosticGroups { get; } = [];
+
+    public ObservableCollection<DiagnosticScopeOption> DiagnosticScopes { get; } = [];
+
     public IReadOnlyList<ExportFormatOption> ExportFormats { get; }
+
+    public IReadOnlyList<DiagnosticSeverityOption> DiagnosticSeverityOptions { get; }
 
     public MacroDocument? SelectedMacro
     {
@@ -79,6 +98,32 @@ public sealed class WorkspaceViewModel : ObservableObject
 
     public ExportFormatOption SelectedExportFormat =>
         ExportFormats.First(item => string.Equals(item.FormatId, TargetFormatId, StringComparison.OrdinalIgnoreCase));
+
+    public DiagnosticSeverityOption SelectedDiagnosticSeverity
+    {
+        get => selectedDiagnosticSeverity;
+        set
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            if (SetProperty(ref selectedDiagnosticSeverity, value))
+            {
+                RebuildDiagnosticGroups();
+            }
+        }
+    }
+
+    public DiagnosticScopeOption SelectedDiagnosticScope
+    {
+        get => selectedDiagnosticScope;
+        set
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            if (SetProperty(ref selectedDiagnosticScope, value))
+            {
+                RebuildDiagnosticGroups();
+            }
+        }
+    }
 
     public bool IsBusy
     {
@@ -115,7 +160,13 @@ public sealed class WorkspaceViewModel : ObservableObject
 
     public string MacroCountText => $"{Macros.Count} 个宏";
 
-    public string DiagnosticCountText => $"{Diagnostics.Count} 条诊断";
+    public string DiagnosticCountText => FilteredDiagnosticCount == Diagnostics.Count
+        ? $"{Diagnostics.Count} 条诊断"
+        : $"显示 {FilteredDiagnosticCount} / {Diagnostics.Count} 条";
+
+    public int FilteredDiagnosticCount => DiagnosticGroups.Sum(item => item.Diagnostics.Count);
+
+    public bool HasFilteredDiagnostics => FilteredDiagnosticCount > 0;
 
     public string SelectedMacroSummary => SelectedMacro is null
         ? "尚未选择宏"
@@ -355,6 +406,62 @@ public sealed class WorkspaceViewModel : ObservableObject
         }
 
         NotifyCollectionSummaries();
+    }
+
+    private void RebuildDiagnosticView()
+    {
+        var previousSource = selectedDiagnosticScope.SourceContext;
+        var contexts = Diagnostics
+            .Select(item => item.SourceContext)
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        DiagnosticScopes.Clear();
+        DiagnosticScopes.Add(new DiagnosticScopeOption("全部来源", null));
+        foreach (var context in contexts)
+        {
+            DiagnosticScopes.Add(new DiagnosticScopeOption(FormatScopeName(context!), context));
+        }
+
+        selectedDiagnosticScope = DiagnosticScopes.FirstOrDefault(item =>
+            string.Equals(item.SourceContext, previousSource, StringComparison.Ordinal)) ?? DiagnosticScopes[0];
+        OnPropertyChanged(nameof(SelectedDiagnosticScope));
+        RebuildDiagnosticGroups();
+    }
+
+    private void RebuildDiagnosticGroups()
+    {
+        var filtered = Diagnostics.Where(item =>
+            (selectedDiagnosticSeverity.Severity is null || item.Severity == selectedDiagnosticSeverity.Severity) &&
+            (selectedDiagnosticScope.SourceContext is null ||
+             string.Equals(item.SourceContext, selectedDiagnosticScope.SourceContext, StringComparison.Ordinal)));
+
+        DiagnosticGroups.Clear();
+        foreach (var group in filtered
+                     .GroupBy(item => string.IsNullOrWhiteSpace(item.SourceContext) ? "工作区" : FormatScopeName(item.SourceContext))
+                     .OrderBy(item => item.Key, StringComparer.Ordinal))
+        {
+            var ordered = group
+                .OrderByDescending(item => item.Severity)
+                .ThenBy(item => item.EventSequence)
+                .ThenBy(item => item.Code, StringComparer.Ordinal)
+                .ToArray();
+            DiagnosticGroups.Add(new DiagnosticGroup(group.Key, ordered));
+        }
+
+        OnPropertyChanged(nameof(FilteredDiagnosticCount));
+        OnPropertyChanged(nameof(HasFilteredDiagnostics));
+        OnPropertyChanged(nameof(DiagnosticCountText));
+    }
+
+    private static string FormatScopeName(string sourceContext)
+    {
+        const int maximumLength = 60;
+        return sourceContext.Length <= maximumLength
+            ? sourceContext
+            : sourceContext[..maximumLength] + "…";
     }
 
     private void NotifyCollectionSummaries()

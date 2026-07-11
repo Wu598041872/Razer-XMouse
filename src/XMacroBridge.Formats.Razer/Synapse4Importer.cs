@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -6,6 +5,7 @@ using XMacroBridge.Core.Abstractions;
 using XMacroBridge.Core.Conversion;
 using XMacroBridge.Core.Diagnostics;
 using XMacroBridge.Core.Models;
+using XMacroBridge.Core.Text;
 
 namespace XMacroBridge.Formats.Razer;
 
@@ -28,9 +28,8 @@ public sealed class Synapse4Importer : IMacroImporter
             return false;
         }
 
-        var text = Encoding.UTF8.GetString(header);
-        return text.TrimStart('\uFEFF', ' ', '\t', '\r', '\n').StartsWith('{')
-            && text.Contains("\"macros\"", StringComparison.OrdinalIgnoreCase);
+        return TextEncodingDetector.TryDecodePrefix(header, out var text)
+            && text.TrimStart(' ', '\t', '\r', '\n').StartsWith('{');
     }
 
     public async Task<MacroImportResult> ImportAsync(
@@ -45,7 +44,8 @@ public sealed class Synapse4Importer : IMacroImporter
             await using var buffer = new MemoryStream();
             await CopyWithLimitAsync(input, buffer, DefaultLimits.MaximumFileBytes, cancellationToken).ConfigureAwait(false);
             var bytes = buffer.ToArray();
-            using var outer = JsonDocument.Parse(bytes, JsonOptions);
+            var outerText = TextEncodingDetector.Decode(bytes);
+            using var outer = JsonDocument.Parse(outerText, JsonOptions);
             if (outer.RootElement.ValueKind != JsonValueKind.Object ||
                 !TryGetProperty(outer.RootElement, "macros", out var macros) ||
                 macros.ValueKind != JsonValueKind.Array)
@@ -63,13 +63,13 @@ public sealed class Synapse4Importer : IMacroImporter
                 {
                     documents.Add(ParseMacroEntry(macroEntry, macroIndex, sourceName, diagnostics));
                 }
-                catch (Exception exception) when (exception is FormatException or JsonException or InvalidDataException or OverflowException)
+                catch (Exception exception) when (exception is FormatException or JsonException or InvalidDataException or OverflowException or DecoderFallbackException)
                 {
                     diagnostics.Add(new ConversionDiagnostic(
                         "SYNAPSE4_MACRO_INVALID",
                         DiagnosticSeverity.Error,
                         $"第 {macroIndex + 1} 个雷云宏载荷无效：{exception.Message}",
-                        SourceContext: sourceName));
+                        SourceContext: DiagnosticContext.FromSourceName(sourceName)));
                 }
 
                 macroIndex++;
@@ -94,7 +94,7 @@ public sealed class Synapse4Importer : IMacroImporter
         {
             throw;
         }
-        catch (Exception exception) when (exception is JsonException or InvalidDataException)
+        catch (Exception exception) when (exception is JsonException or InvalidDataException or DecoderFallbackException)
         {
             return Failure("SYNAPSE4_INVALID", $".synapse4 文件无效：{exception.Message}", sourceName);
         }
@@ -129,7 +129,8 @@ public sealed class Synapse4Importer : IMacroImporter
             throw new InvalidDataException("解码后的宏载荷超过大小上限。 ");
         }
 
-        using var inner = JsonDocument.Parse(payload, JsonOptions);
+        var innerText = TextEncodingDetector.DecodeUtf8(payload);
+        using var inner = JsonDocument.Parse(innerText, JsonOptions);
         if (inner.RootElement.ValueKind != JsonValueKind.Object)
         {
             throw new FormatException("解码后的宏载荷不是 JSON 对象。 ");
@@ -158,51 +159,72 @@ public sealed class Synapse4Importer : IMacroImporter
         {
             if (item.ValueKind != JsonValueKind.Object)
             {
-                events.Add(new UnknownMacroEvent(sequence, "invalid-json-event", item.GetRawText()));
+                var invalidSequence = sequence++;
+                events.Add(new UnknownMacroEvent(invalidSequence, "invalid-json-event", item.GetRawText()));
                 diagnostics.Add(new ConversionDiagnostic(
                     "SYNAPSE4_EVENT_INVALID",
                     DiagnosticSeverity.Error,
                     $"宏“{macroName}”包含非对象事件。",
-                    sequence,
-                    item.GetRawText()));
-                sequence++;
+                    invalidSequence,
+                    macroName));
                 continue;
             }
 
             var type = GetTypeText(item);
-            switch (type)
+            if (type == "actionBar")
             {
-                case "actionBar":
-                    break;
-                case "0":
-                    events.Add(ParseDelay(item, sequence++));
-                    break;
-                case "1":
-                    events.Add(ParseKey(item, sequence++));
-                    break;
-                case "2":
-                    events.Add(ParseMouse(item, sequence++));
-                    break;
-                case "7":
-                    events.Add(ParseReference(item, sequence++));
-                    break;
-                default:
-                    events.Add(new UnknownMacroEvent(sequence, type ?? "missing", item.GetRawText()));
-                    diagnostics.Add(new ConversionDiagnostic(
-                        "SYNAPSE4_EVENT_UNKNOWN",
-                        DiagnosticSeverity.Error,
-                        $"宏“{macroName}”包含未知事件类型 {type ?? "缺失"}。",
-                        sequence,
-                        item.GetRawText()));
-                    sequence++;
-                    break;
+                continue;
+            }
+
+            var eventSequence = sequence++;
+            var rawPayload = item.GetRawText();
+            try
+            {
+                switch (type)
+                {
+                    case "0":
+                        events.Add(ParseDelay(item, eventSequence, diagnostics, macroName));
+                        break;
+                    case "1":
+                        events.Add(ParseKey(item, eventSequence));
+                        break;
+                    case "2":
+                        events.Add(ParseMouse(item, eventSequence));
+                        break;
+                    case "7":
+                        events.Add(ParseReference(item, eventSequence));
+                        break;
+                    default:
+                        events.Add(new UnknownMacroEvent(eventSequence, type ?? "missing", rawPayload));
+                        diagnostics.Add(new ConversionDiagnostic(
+                            "SYNAPSE4_EVENT_UNKNOWN",
+                            DiagnosticSeverity.Error,
+                            $"宏“{macroName}”包含未知事件类型 {type ?? "缺失"}。",
+                            eventSequence,
+                            macroName));
+                        break;
+                }
+            }
+            catch (Exception exception) when (exception is FormatException or OverflowException or InvalidOperationException)
+            {
+                events.Add(new UnknownMacroEvent(eventSequence, type ?? "missing", rawPayload));
+                diagnostics.Add(new ConversionDiagnostic(
+                    "SYNAPSE4_EVENT_INVALID",
+                    DiagnosticSeverity.Error,
+                    $"宏“{macroName}”中的雷云事件无效：{exception.Message}",
+                    eventSequence,
+                    macroName));
             }
         }
 
         return events;
     }
 
-    private static DelayMacroEvent ParseDelay(JsonElement item, long sequence)
+    private static DelayMacroEvent ParseDelay(
+        JsonElement item,
+        long sequence,
+        ICollection<ConversionDiagnostic> diagnostics,
+        string macroName)
     {
         if (!TryGetProperty(item, "Number", out var number))
         {
@@ -210,9 +232,18 @@ public sealed class Synapse4Importer : IMacroImporter
         }
 
         var text = number.ValueKind == JsonValueKind.String ? number.GetString() : number.GetRawText();
-        var seconds = decimal.Parse(text ?? string.Empty, NumberStyles.Float, CultureInfo.InvariantCulture);
-        var milliseconds = decimal.Round(seconds * 1000m, 0, MidpointRounding.AwayFromZero);
-        return new DelayMacroEvent(sequence, checked((long)milliseconds));
+        var conversion = RazerDelayConverter.Convert(text ?? string.Empty);
+        if (conversion.PrecisionLost)
+        {
+            diagnostics.Add(new ConversionDiagnostic(
+                "RAZER_DELAY_PRECISION_LOSS",
+                DiagnosticSeverity.Warning,
+                $"雷云延时 {text} 秒无法精确表示为整数毫秒，已转换为 {conversion.Milliseconds} ms。",
+                sequence,
+                macroName));
+        }
+
+        return new DelayMacroEvent(sequence, conversion.Milliseconds);
     }
 
     private static KeyMacroEvent ParseKey(JsonElement item, long sequence)
@@ -285,7 +316,9 @@ public sealed class Synapse4Importer : IMacroImporter
 
     private static int GetRequiredInt32(JsonElement parent, string name)
     {
-        if (!TryGetProperty(parent, name, out var value) || !value.TryGetInt32(out var result))
+        if (!TryGetProperty(parent, name, out var value) ||
+            value.ValueKind != JsonValueKind.Number ||
+            !value.TryGetInt32(out var result))
         {
             throw new FormatException($"字段 {name} 不是有效整数。 ");
         }
@@ -347,5 +380,5 @@ public sealed class Synapse4Importer : IMacroImporter
     }
 
     private static MacroImportResult Failure(string code, string message, string? sourceName) =>
-        new([], [new ConversionDiagnostic(code, DiagnosticSeverity.Error, message, SourceContext: sourceName)]);
+        new([], [new ConversionDiagnostic(code, DiagnosticSeverity.Error, message, SourceContext: DiagnosticContext.FromSourceName(sourceName))]);
 }

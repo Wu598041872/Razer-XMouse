@@ -5,6 +5,7 @@ using XMacroBridge.Core.Abstractions;
 using XMacroBridge.Core.Conversion;
 using XMacroBridge.Core.Diagnostics;
 using XMacroBridge.Core.Models;
+using XMacroBridge.Core.Text;
 
 namespace XMacroBridge.Formats.Xmbc;
 
@@ -21,8 +22,9 @@ public sealed class XmbcMacroTextImporter : IMacroImporter
             return string.Equals(Path.GetExtension(fileName), ".txt", StringComparison.OrdinalIgnoreCase);
         }
 
-        var text = Encoding.UTF8.GetString(header);
-        return text.Length > 0 && (text.Contains('{') || text.Any(char.IsLetterOrDigit));
+        return TextEncodingDetector.TryDecodePrefix(header, out var text)
+            && text.Length > 0
+            && (text.Contains('{') || text.Any(char.IsLetterOrDigit));
     }
 
     public async Task<MacroImportResult> ImportAsync(
@@ -37,7 +39,7 @@ public sealed class XmbcMacroTextImporter : IMacroImporter
             await using var buffer = new MemoryStream();
             await CopyWithLimitAsync(input, buffer, DefaultLimits.MaximumFileBytes, cancellationToken).ConfigureAwait(false);
             var bytes = buffer.ToArray();
-            var text = new UTF8Encoding(false, true).GetString(bytes).TrimEnd('\r', '\n');
+            var text = TextEncodingDetector.Decode(bytes).TrimEnd('\r', '\n');
             var diagnostics = new List<ConversionDiagnostic>();
             var events = Parse(text, diagnostics);
             var name = Path.GetFileNameWithoutExtension(sourceName) ?? "XMBC 宏文本";
@@ -52,7 +54,7 @@ public sealed class XmbcMacroTextImporter : IMacroImporter
         {
             return new MacroImportResult(
                 [],
-                [new ConversionDiagnostic("XMBC_TEXT_INVALID", DiagnosticSeverity.Error, $"XMBC 宏文本无效：{exception.Message}", SourceContext: sourceName)]);
+                [new ConversionDiagnostic("XMBC_TEXT_INVALID", DiagnosticSeverity.Error, $"XMBC 宏文本无效：{exception.Message}", SourceContext: DiagnosticContext.FromSourceName(sourceName))]);
         }
     }
 

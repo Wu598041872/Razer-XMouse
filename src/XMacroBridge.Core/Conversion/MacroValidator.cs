@@ -57,8 +57,7 @@ public sealed class MacroValidator : IMacroValidator
                         "UNKNOWN_EVENT",
                         DiagnosticSeverity.Error,
                         $"无法识别来源事件类型：{unknown.SourceType}。",
-                        unknown.Sequence,
-                        unknown.RawPayload));
+                        unknown.Sequence));
                     break;
             }
         }

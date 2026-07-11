@@ -7,6 +7,7 @@ using XMacroBridge.Core.Abstractions;
 using XMacroBridge.Core.Conversion;
 using XMacroBridge.Core.Diagnostics;
 using XMacroBridge.Core.Models;
+using XMacroBridge.Core.Text;
 
 namespace XMacroBridge.Formats.Xmbc;
 
@@ -25,8 +26,8 @@ public sealed partial class XmbcSettingsImporter : IMacroImporter
             return false;
         }
 
-        var text = Encoding.UTF8.GetString(header);
-        return text.Contains("<root", StringComparison.OrdinalIgnoreCase)
+        return TextEncodingDetector.TryDecodePrefix(header, out var text)
+            && text.Contains("<root", StringComparison.OrdinalIgnoreCase)
             && text.Contains("<version", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -41,6 +42,7 @@ public sealed partial class XmbcSettingsImporter : IMacroImporter
         {
             await using var buffer = new MemoryStream();
             await CopyWithLimitAsync(input, buffer, DefaultLimits.MaximumFileBytes, cancellationToken).ConfigureAwait(false);
+            TextEncodingDetector.ValidateXmlEncoding(buffer.GetBuffer().AsSpan(0, checked((int)buffer.Length)));
             buffer.Position = 0;
 
             var settings = new XmlReaderSettings
@@ -82,7 +84,7 @@ public sealed partial class XmbcSettingsImporter : IMacroImporter
         {
             throw;
         }
-        catch (Exception exception) when (exception is XmlException or InvalidDataException)
+        catch (Exception exception) when (exception is XmlException or InvalidDataException or DecoderFallbackException)
         {
             return Failure("XMBC_SETTINGS_INVALID", $"XMBC 配置无效：{exception.Message}", sourceName);
         }
@@ -280,7 +282,7 @@ public sealed partial class XmbcSettingsImporter : IMacroImporter
     }
 
     private static MacroImportResult Failure(string code, string message, string? sourceName) =>
-        new([], [new ConversionDiagnostic(code, DiagnosticSeverity.Error, message, SourceContext: sourceName)]);
+        new([], [new ConversionDiagnostic(code, DiagnosticSeverity.Error, message, SourceContext: DiagnosticContext.FromSourceName(sourceName))]);
 
     [GeneratedRegex("^Layer([1-9])$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex LayerElementRegex();

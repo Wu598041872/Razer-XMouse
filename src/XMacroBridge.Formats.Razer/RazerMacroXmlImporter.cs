@@ -7,6 +7,7 @@ using XMacroBridge.Core.Abstractions;
 using XMacroBridge.Core.Conversion;
 using XMacroBridge.Core.Diagnostics;
 using XMacroBridge.Core.Models;
+using XMacroBridge.Core.Text;
 
 namespace XMacroBridge.Formats.Razer;
 
@@ -23,8 +24,8 @@ public sealed class RazerMacroXmlImporter : IMacroImporter
             return false;
         }
 
-        var text = Encoding.UTF8.GetString(header);
-        return text.Contains("<Macro", StringComparison.OrdinalIgnoreCase);
+        return TextEncodingDetector.TryDecodePrefix(header, out var text)
+            && text.Contains("<Macro", StringComparison.OrdinalIgnoreCase);
     }
 
     public async Task<MacroImportResult> ImportAsync(
@@ -40,6 +41,7 @@ public sealed class RazerMacroXmlImporter : IMacroImporter
             await using var buffer = new MemoryStream();
             await CopyWithLimitAsync(input, buffer, DefaultLimits.MaximumFileBytes, cancellationToken).ConfigureAwait(false);
             var bytes = buffer.ToArray();
+            TextEncodingDetector.ValidateXmlEncoding(bytes);
             var documentId = CreateDeterministicGuid(bytes);
             buffer.Position = 0;
 
@@ -71,7 +73,7 @@ public sealed class RazerMacroXmlImporter : IMacroImporter
                     "宏缺少名称，已使用文件名或默认名称。"));
             }
 
-            var events = ParseEvents(root, diagnostics);
+            var events = ParseEvents(root, diagnostics, name);
             var document = new MacroDocument(documentId, name, events, FormatId, sourceName);
             return new MacroImportResult([document], diagnostics);
         }
@@ -79,7 +81,7 @@ public sealed class RazerMacroXmlImporter : IMacroImporter
         {
             throw;
         }
-        catch (Exception exception) when (exception is XmlException or InvalidDataException or FormatException or OverflowException)
+        catch (Exception exception) when (exception is XmlException or InvalidDataException or FormatException or OverflowException or DecoderFallbackException)
         {
             return Failure("RAZER_XML_INVALID", $"雷云 XML 无效：{exception.Message}", sourceName);
         }
@@ -87,7 +89,8 @@ public sealed class RazerMacroXmlImporter : IMacroImporter
 
     private static IReadOnlyList<MacroEvent> ParseEvents(
         XElement root,
-        ICollection<ConversionDiagnostic> diagnostics)
+        ICollection<ConversionDiagnostic> diagnostics,
+        string macroName)
     {
         var container = root.Elements().FirstOrDefault(element =>
             string.Equals(element.Name.LocalName, "MacroEvents", StringComparison.OrdinalIgnoreCase));
@@ -102,50 +105,93 @@ public sealed class RazerMacroXmlImporter : IMacroImporter
 
         var result = new List<MacroEvent>();
         long sequence = 0;
+        var sourceEventIndex = 0;
         foreach (var element in container.Elements().Where(item =>
                      string.Equals(item.Name.LocalName, "MacroEvent", StringComparison.OrdinalIgnoreCase)))
         {
+            sourceEventIndex++;
             var type = GetChildValue(element, "Type");
-            switch (type)
+            if (type == "actionBar")
             {
-                case "actionBar":
-                    diagnostics.Add(new ConversionDiagnostic(
-                        "RAZER_EDITOR_METADATA_IGNORED",
-                        DiagnosticSeverity.Info,
-                        "已忽略雷云编辑器 actionBar 元数据。"));
-                    break;
-                case "0":
-                    result.Add(ParseDelay(element, sequence++));
-                    break;
-                case "1":
-                    result.Add(ParseKey(element, sequence++));
-                    break;
-                case "2":
-                    result.Add(ParseMouse(element, sequence++));
-                    break;
-                case "7":
-                    result.Add(ParseReference(element, sequence++));
-                    break;
-                default:
-                    result.Add(new UnknownMacroEvent(sequence++, type ?? "missing", element.ToString(SaveOptions.DisableFormatting)));
-                    diagnostics.Add(new ConversionDiagnostic(
-                        "RAZER_EVENT_UNKNOWN",
-                        DiagnosticSeverity.Error,
-                        $"无法识别雷云事件类型：{type ?? "缺失"}。",
-                        sequence - 1));
-                    break;
+                diagnostics.Add(new ConversionDiagnostic(
+                    "RAZER_EDITOR_METADATA_IGNORED",
+                    DiagnosticSeverity.Info,
+                    "已忽略雷云编辑器 actionBar 元数据。",
+                    SourceContext: macroName));
+                continue;
+            }
+
+            var eventSequence = sequence++;
+            var rawPayload = element.ToString(SaveOptions.DisableFormatting);
+            try
+            {
+                switch (type)
+                {
+                    case "0":
+                        result.Add(ParseDelay(element, eventSequence, diagnostics, macroName));
+                        break;
+                    case "1":
+                        result.Add(ParseKey(element, eventSequence));
+                        break;
+                    case "2":
+                        result.Add(ParseMouse(element, eventSequence));
+                        break;
+                    case "7":
+                        result.Add(ParseReference(element, eventSequence));
+                        break;
+                    default:
+                        result.Add(new UnknownMacroEvent(eventSequence, type ?? "missing", rawPayload));
+                        diagnostics.Add(new ConversionDiagnostic(
+                            "RAZER_EVENT_UNKNOWN",
+                            DiagnosticSeverity.Error,
+                            $"{FormatEventLocation(element, sourceEventIndex)}无法识别事件类型：{type ?? "缺失"}。",
+                            eventSequence,
+                            macroName));
+                        break;
+                }
+            }
+            catch (Exception exception) when (exception is FormatException or OverflowException)
+            {
+                result.Add(new UnknownMacroEvent(eventSequence, type ?? "missing", rawPayload));
+                diagnostics.Add(new ConversionDiagnostic(
+                    "RAZER_EVENT_INVALID",
+                    DiagnosticSeverity.Error,
+                    $"宏“{macroName}”中的{FormatEventLocation(element, sourceEventIndex)}无效：{exception.Message}",
+                    eventSequence,
+                    macroName));
             }
         }
 
         return result;
     }
 
-    private static DelayMacroEvent ParseDelay(XElement element, long sequence)
+    private static string FormatEventLocation(XElement element, int sourceEventIndex)
+    {
+        var lineInfo = (IXmlLineInfo)element;
+        return lineInfo.HasLineInfo()
+            ? $"第 {sourceEventIndex} 个雷云事件（第 {lineInfo.LineNumber} 行，第 {lineInfo.LinePosition} 列）"
+            : $"第 {sourceEventIndex} 个雷云事件";
+    }
+
+    private static DelayMacroEvent ParseDelay(
+        XElement element,
+        long sequence,
+        ICollection<ConversionDiagnostic> diagnostics,
+        string macroName)
     {
         var value = GetRequiredChildValue(element, "Number");
-        var seconds = decimal.Parse(value, NumberStyles.Float, CultureInfo.InvariantCulture);
-        var milliseconds = decimal.Round(seconds * 1000m, 0, MidpointRounding.AwayFromZero);
-        return new DelayMacroEvent(sequence, checked((long)milliseconds));
+        var conversion = RazerDelayConverter.Convert(value);
+        if (conversion.PrecisionLost)
+        {
+            diagnostics.Add(new ConversionDiagnostic(
+                "RAZER_DELAY_PRECISION_LOSS",
+                DiagnosticSeverity.Warning,
+                $"雷云延时 {value} 秒无法精确表示为整数毫秒，已转换为 {conversion.Milliseconds} ms。",
+                sequence,
+                macroName));
+        }
+
+        return new DelayMacroEvent(sequence, conversion.Milliseconds);
     }
 
     private static KeyMacroEvent ParseKey(XElement element, long sequence)
@@ -243,5 +289,5 @@ public sealed class RazerMacroXmlImporter : IMacroImporter
     private static MacroImportResult Failure(string code, string message, string? sourceName) =>
         new(
             [],
-            [new ConversionDiagnostic(code, DiagnosticSeverity.Error, message, SourceContext: sourceName)]);
+            [new ConversionDiagnostic(code, DiagnosticSeverity.Error, message, SourceContext: DiagnosticContext.FromSourceName(sourceName))]);
 }

@@ -7,6 +7,7 @@ using XMacroBridge.Core.Models;
 using XMacroBridge.Formats.Razer;
 using XMacroBridge.Formats.Xmbc;
 using XMacroBridge.Presentation.Workspace;
+using System.Security.Cryptography;
 using System.Text;
 
 var tests = new (string Name, Action Run)[]
@@ -18,8 +19,11 @@ var tests = new (string Name, Action Run)[]
     ("Event limit is enforced", EventLimitIsEnforced),
     ("Razer XML fixture imports safely", RazerXmlFixtureImportsSafely),
     ("Razer XML rejects DTD", RazerXmlRejectsDtd),
+    ("Razer XML malformed event preserves surrounding events", RazerXmlMalformedEventPreservesSurroundingEvents),
+    ("Razer delay precision loss is diagnosed", RazerDelayPrecisionLossIsDiagnosed),
     ("XMBC text fixture imports safely", XmbcTextFixtureImportsSafely),
     ("XMBC unknown token is preserved as error", XmbcUnknownTokenIsPreservedAsError),
+    ("Unknown-event validation does not expose raw payload", UnknownEventValidationDoesNotExposeRawPayload),
     ("Nested macros flatten by GUID", NestedMacrosFlattenByGuid),
     ("Missing nested macro is rejected", MissingNestedMacroIsRejected),
     ("Nested macro cycle is rejected", NestedMacroCycleIsRejected),
@@ -27,7 +31,12 @@ var tests = new (string Name, Action Run)[]
     ("Nested expansion event limit is enforced", NestedExpansionEventLimitIsEnforced),
     ("Synapse4 package imports and flattens", Synapse4PackageImportsAndFlattens),
     ("Synapse4 invalid payload is diagnosed", Synapse4InvalidPayloadIsDiagnosed),
+    ("Synapse4 invalid macro entry does not block later entries", Synapse4InvalidMacroEntryDoesNotBlockLaterEntries),
     ("Synapse4 malformed event is preserved", Synapse4MalformedEventIsPreserved),
+    ("Synapse4 malformed known event preserves surrounding events", Synapse4MalformedKnownEventPreservesSurroundingEvents),
+    ("UTF BOM encodings import consistently", UtfBomEncodingsImportConsistently),
+    ("XML importers enforce supported encoding policy", XmlImportersEnforceSupportedEncodingPolicy),
+    ("Format diagnostics sanitize source paths", FormatDiagnosticsSanitizeSourcePaths),
     ("XMBC settings extract action 28 macros", XmbcSettingsExtractAction28Macros),
     ("XMBC settings reject DTD", XmbcSettingsRejectDtd),
     ("XMBC text export round trips", XmbcTextExportRoundTrips),
@@ -49,6 +58,7 @@ var tests = new (string Name, Action Run)[]
     ("XMBC rejects non-adjacent atomic wheel pairs", XmbcRejectsNonAdjacentAtomicWheelPairs),
     ("XMBC rejects mismatched and isolated atomic mouse events", XmbcRejectsMalformedAtomicMouseEvents),
     ("Application import service handles fixture directory", ApplicationImportServiceHandlesFixtureDirectory),
+    ("Application import service preserves BOM-encoded inputs", ApplicationImportServicePreservesBomEncodedInputs),
     ("Application import service diagnoses unknown XML", ApplicationImportServiceDiagnosesUnknownXml),
     ("Safe export writes atomically and protects source", SafeExportWritesAtomicallyAndProtectsSource),
     ("Failed safe export cleans temporary files", FailedSafeExportCleansTemporaryFiles),
@@ -129,6 +139,7 @@ static void RazerXmlFixtureImportsSafely()
     Assert(result.Documents.Count == 1, "Expected one imported macro.");
     Assert(result.Documents[0].Events.Count == 6, "Expected six executable events.");
     Assert(result.Documents[0].Events.OfType<DelayMacroEvent>().Select(item => item.Milliseconds).SequenceEqual([50L, 10L]), "Delay conversion is incorrect.");
+    Assert(result.Diagnostics.All(item => item.Code != "RAZER_DELAY_PRECISION_LOSS"), "Exact millisecond delays must not produce precision warnings.");
     Assert(!new MacroValidator().Validate(result.Documents[0]).HasErrors, "Imported fixture should validate.");
 }
 
@@ -140,6 +151,55 @@ static void RazerXmlRejectsDtd()
 
     Assert(result.Documents.Count == 0, "DTD input must not produce a document.");
     Assert(result.Diagnostics.Any(item => item.Code == "RAZER_XML_INVALID"), "DTD rejection diagnostic is missing.");
+}
+
+static void RazerXmlMalformedEventPreservesSurroundingEvents()
+{
+    const string xml = """
+        <Macro>
+          <Name>Mixed</Name>
+          <MacroEvents>
+            <MacroEvent><Type>1</Type><KeyEvent><Makecode>65</Makecode><State>0</State></KeyEvent></MacroEvent>
+            <MacroEvent><Type>0</Type></MacroEvent>
+            <MacroEvent><Type>1</Type><KeyEvent><Makecode>65</Makecode><State>1</State></KeyEvent></MacroEvent>
+          </MacroEvents>
+        </Macro>
+        """;
+    using var stream = new MemoryStream(Encoding.UTF8.GetBytes(xml));
+    var result = new RazerMacroXmlImporter().ImportAsync(stream, "mixed.xml").GetAwaiter().GetResult();
+
+    Assert(result.Documents.Count == 1, "A malformed Razer event must not discard its containing macro.");
+    Assert(result.Documents[0].Events.Count == 3, "Surrounding Razer events must be retained in order.");
+    Assert(result.Documents[0].Events[0] is KeyMacroEvent { Transition: InputTransition.Down }, "Leading valid event was lost.");
+    Assert(result.Documents[0].Events[1] is UnknownMacroEvent, "Malformed event must be represented as UnknownMacroEvent.");
+    Assert(result.Documents[0].Events[2] is KeyMacroEvent { Transition: InputTransition.Up }, "Trailing valid event was lost.");
+    var diagnostic = result.Diagnostics.SingleOrDefault(item => item.Code == "RAZER_EVENT_INVALID");
+    Assert(diagnostic?.EventSequence == 1, "Malformed Razer event diagnostic is missing its sequence.");
+    Assert(diagnostic?.SourceContext == "Mixed", "Malformed Razer event diagnostic is missing macro context.");
+    Assert(diagnostic?.Message.Contains("第 2 个雷云事件", StringComparison.Ordinal) == true, "Malformed Razer event diagnostic is missing its source position.");
+}
+
+static void RazerDelayPrecisionLossIsDiagnosed()
+{
+    const string xml = "<Macro><Name>Precision XML</Name><MacroEvents><MacroEvent><Type>0</Type><Number>0.0005</Number></MacroEvent></MacroEvents></Macro>";
+    using var xmlStream = new MemoryStream(Encoding.UTF8.GetBytes(xml));
+    var xmlResult = new RazerMacroXmlImporter().ImportAsync(xmlStream, "precision.xml").GetAwaiter().GetResult();
+    Assert(xmlResult.Documents.Single().Events.Single() is DelayMacroEvent { Milliseconds: 1 }, "Standalone Razer delay should round away from zero.");
+    Assert(xmlResult.Diagnostics.Any(item => item.Code == "RAZER_DELAY_PRECISION_LOSS" && item.Severity == DiagnosticSeverity.Warning), "Standalone Razer precision warning is absent.");
+
+    const string inner = "{\"guid\":\"44444444-4444-4444-4444-444444444444\",\"macroEvents\":[{\"Type\":0,\"Number\":\"0.0015\"}]}";
+    var payload = Convert.ToBase64String(Encoding.UTF8.GetBytes(inner));
+    var package = $"{{\"macros\":[{{\"name\":\"Precision Package\",\"payload\":\"{payload}\",\"hash\":\"ignored\"}}]}}";
+    using var packageStream = new MemoryStream(Encoding.UTF8.GetBytes(package));
+    var packageResult = new Synapse4Importer().ImportAsync(packageStream, "precision.synapse4").GetAwaiter().GetResult();
+    Assert(packageResult.Documents.Single().Events.Single() is DelayMacroEvent { Milliseconds: 2 }, "Synapse delay should round away from zero.");
+    Assert(packageResult.Diagnostics.Any(item => item.Code == "RAZER_DELAY_PRECISION_LOSS" && item.Severity == DiagnosticSeverity.Warning), "Synapse precision warning is absent.");
+
+    const string negativeXml = "<Macro><Name>Negative</Name><MacroEvents><MacroEvent><Type>0</Type><Number>-0.0004</Number></MacroEvent></MacroEvents></Macro>";
+    using var negativeStream = new MemoryStream(Encoding.UTF8.GetBytes(negativeXml));
+    var negativeResult = new RazerMacroXmlImporter().ImportAsync(negativeStream, "negative.xml").GetAwaiter().GetResult();
+    Assert(negativeResult.Documents.Single().Events.Single() is UnknownMacroEvent, "A negative sub-millisecond delay must not round into a valid zero delay.");
+    Assert(negativeResult.Diagnostics.Any(item => item.Code == "RAZER_EVENT_INVALID"), "Negative Razer delay diagnostic is absent.");
 }
 
 static void XmbcTextFixtureImportsSafely()
@@ -162,6 +222,16 @@ static void XmbcUnknownTokenIsPreservedAsError()
     Assert(result.Documents[0].Events.OfType<UnknownMacroEvent>().Any(), "Unknown token must remain in the event model.");
     Assert(result.Diagnostics.Any(item => item.Code == "XMBC_TOKEN_UNKNOWN"), "Unknown token diagnostic is missing.");
     Assert(new MacroValidator().Validate(result.Documents[0]).HasErrors, "Unknown token must block validation.");
+}
+
+static void UnknownEventValidationDoesNotExposeRawPayload()
+{
+    const string rawPayload = @"C:\Private\raw-macro-content";
+    var document = CreateDocument(new UnknownMacroEvent(0, "broken", rawPayload));
+    var diagnostic = new MacroValidator().Validate(document).Diagnostics.Single(item => item.Code == "UNKNOWN_EVENT");
+
+    Assert(diagnostic.SourceContext is null, "Unknown-event raw payload must not be reused as diagnostic source context.");
+    Assert(!diagnostic.Message.Contains(rawPayload, StringComparison.Ordinal), "Unknown-event diagnostic message leaked the raw payload.");
 }
 
 static void NestedMacrosFlattenByGuid()
@@ -250,6 +320,23 @@ static void Synapse4InvalidPayloadIsDiagnosed()
     Assert(imported.Diagnostics.Any(item => item.Code == "SYNAPSE4_MACRO_INVALID"), "Invalid payload diagnostic is absent.");
 }
 
+static void Synapse4InvalidMacroEntryDoesNotBlockLaterEntries()
+{
+    const string firstInner = "{\"guid\":\"77777777-7777-7777-7777-777777777777\",\"macroEvents\":[]}";
+    const string lastInner = "{\"guid\":\"88888888-8888-8888-8888-888888888888\",\"macroEvents\":[]}";
+    var firstPayload = Convert.ToBase64String(Encoding.UTF8.GetBytes(firstInner));
+    var lastPayload = Convert.ToBase64String(Encoding.UTF8.GetBytes(lastInner));
+    var package = $"{{\"macros\":[" +
+                  $"{{\"name\":\"First\",\"payload\":\"{firstPayload}\"}}," +
+                  "{\"name\":\"Broken\",\"payload\":\"not-base64\"}," +
+                  $"{{\"name\":\"Last\",\"payload\":\"{lastPayload}\"}}]}}";
+    using var stream = new MemoryStream(Encoding.UTF8.GetBytes(package));
+    var imported = new Synapse4Importer().ImportAsync(stream, "mixed-entries.synapse4").GetAwaiter().GetResult();
+
+    Assert(imported.Documents.Select(item => item.Name).SequenceEqual(["First", "Last"]), "Valid Synapse entries around a broken entry must be retained.");
+    Assert(imported.Diagnostics.Count(item => item.Code == "SYNAPSE4_MACRO_INVALID") == 1, "Broken Synapse entry requires one isolated diagnostic.");
+}
+
 static void Synapse4MalformedEventIsPreserved()
 {
     const string inner = "{\"guid\":\"33333333-3333-3333-3333-333333333333\",\"macroEvents\":[123]}";
@@ -261,6 +348,159 @@ static void Synapse4MalformedEventIsPreserved()
     Assert(imported.Documents.Count == 1, "Malformed event should not discard the containing macro.");
     Assert(imported.Documents[0].Events.OfType<UnknownMacroEvent>().Any(), "Malformed event must remain visible.");
     Assert(imported.Diagnostics.Any(item => item.Code == "SYNAPSE4_EVENT_INVALID"), "Malformed event diagnostic is absent.");
+}
+
+static void Synapse4MalformedKnownEventPreservesSurroundingEvents()
+{
+    const string inner = """
+        {"guid":"55555555-5555-5555-5555-555555555555","macroEvents":[
+          {"Type":1,"KeyEvent":{"Makecode":65,"State":0}},
+          {"Type":0},
+          {"Type":1,"KeyEvent":{"Makecode":"broken","State":1}},
+          {"Type":2,"MouseEvent":{"MouseButton":99,"State":0}},
+          {"Type":7,"guid":"broken","MPIndex":"broken"},
+          {"Type":1,"KeyEvent":{"Makecode":65,"State":1}}
+        ]}
+        """;
+    var payload = Convert.ToBase64String(Encoding.UTF8.GetBytes(inner));
+    var package = $"{{\"macros\":[{{\"name\":\"Known Malformed\",\"payload\":\"{payload}\",\"hash\":\"ignored\"}}]}}";
+    using var stream = new MemoryStream(Encoding.UTF8.GetBytes(package));
+    var imported = new Synapse4Importer().ImportAsync(stream, "known-malformed.synapse4").GetAwaiter().GetResult();
+
+    Assert(imported.Documents.Count == 1, "A malformed known Synapse event must not discard its containing macro.");
+    Assert(imported.Documents[0].Events.Count == 6, "Surrounding Synapse events must be retained in order.");
+    Assert(imported.Documents[0].Events[0] is KeyMacroEvent { Transition: InputTransition.Down }, "Leading Synapse event was lost.");
+    Assert(imported.Documents[0].Events.Skip(1).Take(4).All(item => item is UnknownMacroEvent), "Every malformed known Synapse event must remain visible.");
+    Assert(imported.Documents[0].Events[5] is KeyMacroEvent { Transition: InputTransition.Up }, "Trailing Synapse event was lost.");
+    var diagnostics = imported.Diagnostics.Where(item => item.Code == "SYNAPSE4_EVENT_INVALID").OrderBy(item => item.EventSequence).ToArray();
+    Assert(diagnostics.Length == 4, "Each malformed known Synapse event requires one diagnostic.");
+    Assert(diagnostics.Select(item => item.EventSequence).SequenceEqual(new long?[] { 1, 2, 3, 4 }), "Malformed Synapse event sequences are incorrect.");
+    Assert(diagnostics.All(item => item.SourceContext == "Known Malformed"), "Malformed known Synapse diagnostics are missing macro context.");
+}
+
+static void UtfBomEncodingsImportConsistently()
+{
+    var encodings = new Encoding[]
+    {
+        new UTF8Encoding(true, true),
+        new UnicodeEncoding(false, true, true),
+        new UnicodeEncoding(true, true, true),
+    };
+    const string razerXml = "<Macro><Name>Encoded Razer</Name><MacroEvents><MacroEvent><Type>0</Type><Number>0.001</Number></MacroEvent></MacroEvents></Macro>";
+    const string xmbcSettings = "<root><version major='2'/><Default><Left action='28' keys='a'/></Default></root>";
+    const string xmbcText = "a{WAITMS:1}";
+    const string synapseInner = "{\"guid\":\"66666666-6666-6666-6666-666666666666\",\"macroEvents\":[]}";
+    var payload = Convert.ToBase64String(Encoding.UTF8.GetBytes(synapseInner));
+    var synapseOuter = $"{{\"macros\":[{{\"name\":\"Encoded Synapse\",\"payload\":\"{payload}\",\"hash\":\"ignored\"}}]}}";
+    var registry = MacroFormatRegistry.CreateDefault();
+    var lateMacrosHeader = Encoding.UTF8.GetBytes("{\"profiles\":\"" + new string('x', 5_000));
+    Assert(new Synapse4Importer().CanImport(lateMacrosHeader.AsSpan(0, 4_096), "late-macros.synapse4"), "Synapse routing must not require macros to appear in the probe window.");
+
+    foreach (var encoding in encodings)
+    {
+        var label = encoding.WebName;
+        var razerBytes = EncodeWithPreamble(razerXml, encoding);
+        Assert(registry.FindImporter(razerBytes, "encoded-razer.xml") is RazerMacroXmlImporter, $"Razer XML detection failed for {label}.");
+        using var razerStream = new MemoryStream(razerBytes);
+        var razerResult = new RazerMacroXmlImporter().ImportAsync(razerStream, "encoded-razer.xml").GetAwaiter().GetResult();
+        Assert(razerResult.Documents.Single().Events.Single() is DelayMacroEvent { Milliseconds: 1 }, $"Razer XML import failed for {label}.");
+
+        var settingsBytes = EncodeWithPreamble(xmbcSettings, encoding);
+        Assert(registry.FindImporter(settingsBytes, "encoded-settings.xml") is XmbcSettingsImporter, $"XMBC settings detection failed for {label}.");
+        using var settingsStream = new MemoryStream(settingsBytes);
+        var settingsResult = new XmbcSettingsImporter().ImportAsync(settingsStream, "encoded-settings.xml").GetAwaiter().GetResult();
+        Assert(settingsResult.Documents.Count == 1, $"XMBC settings import failed for {label}.");
+
+        var textBytes = EncodeWithPreamble(xmbcText, encoding);
+        using var textStream = new MemoryStream(textBytes);
+        var textResult = new XmbcMacroTextImporter().ImportAsync(textStream, "encoded.txt").GetAwaiter().GetResult();
+        Assert(textResult.Documents.Single().Events.Count == 3, $"XMBC text import failed for {label}.");
+
+        var synapseBytes = EncodeWithPreamble(synapseOuter, encoding);
+        Assert(registry.FindImporter(synapseBytes, "encoded.synapse4") is Synapse4Importer, $"Synapse detection failed for {label}.");
+        using var synapseStream = new MemoryStream(synapseBytes);
+        var synapseResult = new Synapse4Importer().ImportAsync(synapseStream, "encoded.synapse4").GetAwaiter().GetResult();
+        Assert(synapseResult.Documents.Count == 1, $"Synapse import failed for {label}.");
+    }
+
+    var utf32 = new UTF32Encoding(false, true, true);
+    using var invalidTextStream = new MemoryStream(EncodeWithPreamble(xmbcText, utf32));
+    var invalidText = new XmbcMacroTextImporter().ImportAsync(invalidTextStream, "utf32.txt").GetAwaiter().GetResult();
+    Assert(invalidText.Documents.Count == 0 && invalidText.Diagnostics.Any(item => item.Code == "XMBC_TEXT_INVALID"), "Unsupported UTF-32 text must fail visibly.");
+
+    using var invalidSynapseStream = new MemoryStream(EncodeWithPreamble(synapseOuter, utf32));
+    var invalidSynapse = new Synapse4Importer().ImportAsync(invalidSynapseStream, "utf32.synapse4").GetAwaiter().GetResult();
+    Assert(invalidSynapse.Documents.Count == 0 && invalidSynapse.Diagnostics.Any(item => item.Code == "SYNAPSE4_INVALID"), "Unsupported UTF-32 Synapse input must fail visibly.");
+
+    var utf8BomPayload = Convert.ToBase64String(EncodeWithPreamble(synapseInner, encodings[0]));
+    var utf8BomPackage = $"{{\"macros\":[{{\"name\":\"UTF8 BOM Payload\",\"payload\":\"{utf8BomPayload}\"}}]}}";
+    using var utf8BomPayloadStream = new MemoryStream(Encoding.UTF8.GetBytes(utf8BomPackage));
+    var utf8BomPayloadResult = new Synapse4Importer().ImportAsync(utf8BomPayloadStream, "utf8-bom-payload.synapse4").GetAwaiter().GetResult();
+    Assert(utf8BomPayloadResult.Documents.Count == 1, "UTF-8 BOM Synapse payload should be accepted.");
+
+    var utf16Payload = Convert.ToBase64String(EncodeWithPreamble(synapseInner, encodings[1]));
+    var utf16PayloadPackage = $"{{\"macros\":[{{\"name\":\"UTF16 Payload\",\"payload\":\"{utf16Payload}\"}}]}}";
+    using var utf16PayloadStream = new MemoryStream(Encoding.UTF8.GetBytes(utf16PayloadPackage));
+    var utf16PayloadResult = new Synapse4Importer().ImportAsync(utf16PayloadStream, "utf16-payload.synapse4").GetAwaiter().GetResult();
+    Assert(utf16PayloadResult.Documents.Count == 0 && utf16PayloadResult.Diagnostics.Any(item => item.Code == "SYNAPSE4_MACRO_INVALID"), "UTF-16 Synapse payload must be rejected without affecting the package parser.");
+}
+
+static void XmlImportersEnforceSupportedEncodingPolicy()
+{
+    const string validUtf8 = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Macro><Name>UTF8</Name><MacroEvents /></Macro>";
+    using var validUtf8Stream = new MemoryStream(Encoding.UTF8.GetBytes(validUtf8));
+    Assert(new RazerMacroXmlImporter().ImportAsync(validUtf8Stream, "valid-utf8.xml").GetAwaiter().GetResult().Documents.Count == 1, "Valid UTF-8 XML declaration was rejected.");
+
+    const string validUtf16 = "<?xml version=\"1.0\" encoding=\"UTF-16\"?><Macro><Name>UTF16</Name><MacroEvents /></Macro>";
+    using var validUtf16Stream = new MemoryStream(EncodeWithPreamble(validUtf16, new UnicodeEncoding(false, true, true)));
+    Assert(new RazerMacroXmlImporter().ImportAsync(validUtf16Stream, "valid-utf16.xml").GetAwaiter().GetResult().Documents.Count == 1, "Valid UTF-16 XML declaration was rejected.");
+
+    const string mismatched = "<?xml version='1.0' encoding='UTF-16'?><Macro><Name>Mismatch</Name><MacroEvents /></Macro>";
+    using var mismatchedStream = new MemoryStream(Encoding.UTF8.GetBytes(mismatched));
+    var mismatchedResult = new RazerMacroXmlImporter().ImportAsync(mismatchedStream, "mismatched.xml").GetAwaiter().GetResult();
+    Assert(mismatchedResult.Documents.Count == 0 && mismatchedResult.Diagnostics.Any(item => item.Code == "RAZER_XML_INVALID"), "Mismatched XML declaration and bytes must be rejected.");
+
+    const string legacyRazer = "<?xml version='1.0' encoding='windows-1252'?><Macro><Name>Legacy</Name><MacroEvents /></Macro>";
+    using var legacyRazerStream = new MemoryStream(Encoding.Latin1.GetBytes(legacyRazer));
+    var legacyRazerResult = new RazerMacroXmlImporter().ImportAsync(legacyRazerStream, "legacy.xml").GetAwaiter().GetResult();
+    Assert(legacyRazerResult.Documents.Count == 0 && legacyRazerResult.Diagnostics.Any(item => item.Code == "RAZER_XML_INVALID"), "Razer XML must reject undeclared legacy code-page support.");
+
+    var longDeclaration = "<?xml version='1.0' " + new string(' ', 9_000) + "encoding='windows-1252'?><Macro><Name>Long</Name><MacroEvents /></Macro>";
+    using var longDeclarationStream = new MemoryStream(Encoding.Latin1.GetBytes(longDeclaration));
+    var longDeclarationResult = new RazerMacroXmlImporter().ImportAsync(longDeclarationStream, "long-declaration.xml").GetAwaiter().GetResult();
+    Assert(longDeclarationResult.Documents.Count == 0 && longDeclarationResult.Diagnostics.Any(item => item.Code == "RAZER_XML_INVALID"), "An oversized XML declaration must not bypass encoding validation.");
+
+    const string legacySettings = "<?xml version='1.0' encoding='windows-1252'?><root><version major='2'/></root>";
+    using var legacySettingsStream = new MemoryStream(Encoding.Latin1.GetBytes(legacySettings));
+    var legacySettingsResult = new XmbcSettingsImporter().ImportAsync(legacySettingsStream, "legacy-settings.xml").GetAwaiter().GetResult();
+    Assert(legacySettingsResult.Documents.Count == 0 && legacySettingsResult.Diagnostics.Any(item => item.Code == "XMBC_SETTINGS_INVALID"), "XMBC settings must reject undeclared legacy code-page support.");
+
+    var utf32 = new UTF32Encoding(false, true, true);
+    using var utf32RazerStream = new MemoryStream(EncodeWithPreamble("<Macro><Name>UTF32</Name><MacroEvents /></Macro>", utf32));
+    var utf32RazerResult = new RazerMacroXmlImporter().ImportAsync(utf32RazerStream, "utf32.xml").GetAwaiter().GetResult();
+    Assert(utf32RazerResult.Documents.Count == 0 && utf32RazerResult.Diagnostics.Any(item => item.Code == "RAZER_XML_INVALID"), "Razer XML must reject UTF-32.");
+}
+
+static void FormatDiagnosticsSanitizeSourcePaths()
+{
+    const string privateDirectory = @"C:\Private\Macros";
+
+    using var razerStream = new MemoryStream(Encoding.UTF8.GetBytes("<not-macro />"));
+    var razer = new RazerMacroXmlImporter().ImportAsync(razerStream, privateDirectory + @"\secret.xml").GetAwaiter().GetResult();
+    Assert(razer.Diagnostics.All(item => item.SourceContext is null || item.SourceContext == "secret.xml"), "Razer diagnostic leaked an absolute source path.");
+
+    const string brokenPackage = "{\"macros\":[{\"name\":\"Broken\",\"payload\":\"not-base64\"}]}";
+    using var synapseStream = new MemoryStream(Encoding.UTF8.GetBytes(brokenPackage));
+    var synapse = new Synapse4Importer().ImportAsync(synapseStream, privateDirectory + @"\secret.synapse4").GetAwaiter().GetResult();
+    Assert(synapse.Diagnostics.All(item => item.SourceContext is null || item.SourceContext == "secret.synapse4"), "Synapse diagnostic leaked an absolute source path.");
+
+    using var settingsStream = new MemoryStream(Encoding.UTF8.GetBytes("<not-settings />"));
+    var settings = new XmbcSettingsImporter().ImportAsync(settingsStream, privateDirectory + @"\secret-settings.xml").GetAwaiter().GetResult();
+    Assert(settings.Diagnostics.All(item => item.SourceContext is null || item.SourceContext == "secret-settings.xml"), "XMBC settings diagnostic leaked an absolute source path.");
+
+    using var textStream = new MemoryStream([0xFF]);
+    var text = new XmbcMacroTextImporter().ImportAsync(textStream, privateDirectory + @"\secret.txt").GetAwaiter().GetResult();
+    Assert(text.Diagnostics.All(item => item.SourceContext is null || item.SourceContext == "secret.txt"), "XMBC text diagnostic leaked an absolute source path.");
 }
 
 static void XmbcSettingsExtractAction28Macros()
@@ -587,6 +827,48 @@ static void ApplicationImportServiceHandlesFixtureDirectory()
     }
 }
 
+static void ApplicationImportServicePreservesBomEncodedInputs()
+{
+    var tempDirectory = CreateTemporaryDirectory();
+    try
+    {
+        var encoding = new UnicodeEncoding(true, true, true);
+        const string razerXml = "<Macro><Name>Service Razer</Name><MacroEvents><MacroEvent><Type>0</Type><Number>0.001</Number></MacroEvent></MacroEvents></Macro>";
+        const string settingsXml = "<root><version major='2'/><Default><Left action='28' keys='a'/></Default></root>";
+        const string macroText = "a{WAITMS:1}";
+        const string inner = "{\"guid\":\"99999999-9999-9999-9999-999999999999\",\"macroEvents\":[]}";
+        var payload = Convert.ToBase64String(Encoding.UTF8.GetBytes(inner));
+        var synapse = $"{{\"macros\":[{{\"name\":\"Service Synapse\",\"payload\":\"{payload}\"}}]}}";
+        var files = new Dictionary<string, string>
+        {
+            ["razer.xml"] = razerXml,
+            ["settings.xml"] = settingsXml,
+            ["macro.txt"] = macroText,
+            ["package.synapse4"] = synapse,
+        };
+        var hashes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (name, content) in files)
+        {
+            var path = Path.Combine(tempDirectory, name);
+            File.WriteAllBytes(path, EncodeWithPreamble(content, encoding));
+            hashes[path] = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)));
+        }
+
+        var result = new MacroImportService(MacroFormatRegistry.CreateDefault()).ImportAsync([tempDirectory]).GetAwaiter().GetResult();
+        Assert(result.ProcessedFiles.Count == 4, "BOM-encoded service import did not process every file.");
+        Assert(result.Documents.Count == 4, "BOM-encoded service import returned the wrong document count.");
+        Assert(!result.Diagnostics.Any(item => item.Severity == DiagnosticSeverity.Error), "BOM-encoded service import produced an error.");
+        foreach (var (path, hash) in hashes)
+        {
+            Assert(Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))) == hash, $"Import modified BOM-encoded input {Path.GetFileName(path)}.");
+        }
+    }
+    finally
+    {
+        Directory.Delete(tempDirectory, true);
+    }
+}
+
 static void ApplicationImportServiceDiagnosesUnknownXml()
 {
     var tempDirectory = CreateTemporaryDirectory();
@@ -831,6 +1113,16 @@ static string CreateTemporaryDirectory()
     var path = Path.Combine(Path.GetTempPath(), "XMacroBridge.Tests", Guid.NewGuid().ToString("N"));
     Directory.CreateDirectory(path);
     return path;
+}
+
+static byte[] EncodeWithPreamble(string text, Encoding encoding)
+{
+    var preamble = encoding.GetPreamble();
+    var content = encoding.GetBytes(text);
+    var result = new byte[preamble.Length + content.Length];
+    preamble.CopyTo(result, 0);
+    content.CopyTo(result, preamble.Length);
+    return result;
 }
 
 static IEnumerable<string> EventSignatures(MacroDocument document) =>

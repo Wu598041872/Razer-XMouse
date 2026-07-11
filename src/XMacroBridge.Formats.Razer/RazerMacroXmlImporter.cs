@@ -13,7 +13,16 @@ namespace XMacroBridge.Formats.Razer;
 
 public sealed class RazerMacroXmlImporter : IMacroImporter
 {
-    private static readonly MacroLimits DefaultLimits = new();
+    private readonly MacroLimits limits;
+
+    public RazerMacroXmlImporter(MacroLimits? limits = null)
+    {
+        this.limits = limits ?? new MacroLimits();
+        if (this.limits.MaximumEventsPerMacro < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(limits), "事件上限必须至少为 1。 ");
+        }
+    }
 
     public string FormatId => "razer.macro.xml";
 
@@ -39,7 +48,7 @@ public sealed class RazerMacroXmlImporter : IMacroImporter
         try
         {
             await using var buffer = new MemoryStream();
-            await CopyWithLimitAsync(input, buffer, DefaultLimits.MaximumFileBytes, cancellationToken).ConfigureAwait(false);
+            await CopyWithLimitAsync(input, buffer, limits.MaximumFileBytes, cancellationToken).ConfigureAwait(false);
             var bytes = buffer.ToArray();
             TextEncodingDetector.ValidateXmlEncoding(bytes);
             var documentId = CreateDeterministicGuid(bytes);
@@ -50,7 +59,7 @@ public sealed class RazerMacroXmlImporter : IMacroImporter
                 Async = true,
                 DtdProcessing = DtdProcessing.Prohibit,
                 XmlResolver = null,
-                MaxCharactersInDocument = DefaultLimits.MaximumFileBytes,
+                MaxCharactersInDocument = limits.MaximumFileBytes,
                 IgnoreComments = true,
                 IgnoreWhitespace = true,
             };
@@ -73,7 +82,7 @@ public sealed class RazerMacroXmlImporter : IMacroImporter
                     "宏缺少名称，已使用文件名或默认名称。"));
             }
 
-            var events = ParseEvents(root, diagnostics, name);
+            var events = ParseEvents(root, diagnostics, name, limits);
             var document = new MacroDocument(documentId, name, events, FormatId, sourceName);
             return new MacroImportResult([document], diagnostics);
         }
@@ -90,7 +99,8 @@ public sealed class RazerMacroXmlImporter : IMacroImporter
     private static IReadOnlyList<MacroEvent> ParseEvents(
         XElement root,
         ICollection<ConversionDiagnostic> diagnostics,
-        string macroName)
+        string macroName,
+        MacroLimits limits)
     {
         var container = root.Elements().FirstOrDefault(element =>
             string.Equals(element.Name.LocalName, "MacroEvents", StringComparison.OrdinalIgnoreCase));
@@ -119,6 +129,17 @@ public sealed class RazerMacroXmlImporter : IMacroImporter
                     "已忽略雷云编辑器 actionBar 元数据。",
                     SourceContext: macroName));
                 continue;
+            }
+
+            if (sequence >= limits.MaximumEventsPerMacro)
+            {
+                result[^1] = new UnknownMacroEvent(sequence - 1, "import.event-limit");
+                diagnostics.Add(new ConversionDiagnostic(
+                    "IMPORT_EVENT_LIMIT",
+                    DiagnosticSeverity.Error,
+                    $"宏“{macroName}”的事件数超过上限 {limits.MaximumEventsPerMacro}，已停止继续解析。",
+                    SourceContext: macroName));
+                break;
             }
 
             var eventSequence = sequence++;

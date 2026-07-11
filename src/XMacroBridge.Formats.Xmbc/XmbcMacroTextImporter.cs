@@ -11,7 +11,16 @@ namespace XMacroBridge.Formats.Xmbc;
 
 public sealed class XmbcMacroTextImporter : IMacroImporter
 {
-    private static readonly MacroLimits DefaultLimits = new();
+    private readonly MacroLimits limits;
+
+    public XmbcMacroTextImporter(MacroLimits? limits = null)
+    {
+        this.limits = limits ?? new MacroLimits();
+        if (this.limits.MaximumEventsPerMacro < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(limits), "事件上限必须至少为 1。 ");
+        }
+    }
 
     public string FormatId => "xmbc.macro.text";
 
@@ -37,11 +46,11 @@ public sealed class XmbcMacroTextImporter : IMacroImporter
         try
         {
             await using var buffer = new MemoryStream();
-            await CopyWithLimitAsync(input, buffer, DefaultLimits.MaximumFileBytes, cancellationToken).ConfigureAwait(false);
+            await CopyWithLimitAsync(input, buffer, limits.MaximumFileBytes, cancellationToken).ConfigureAwait(false);
             var bytes = buffer.ToArray();
             var text = TextEncodingDetector.Decode(bytes).TrimEnd('\r', '\n');
             var diagnostics = new List<ConversionDiagnostic>();
-            var events = Parse(text, diagnostics);
+            var events = Parse(text, diagnostics, limits);
             var name = Path.GetFileNameWithoutExtension(sourceName) ?? "XMBC 宏文本";
             var document = new MacroDocument(CreateDeterministicGuid(bytes), name, events, FormatId, sourceName);
             return new MacroImportResult([document], diagnostics);
@@ -60,13 +69,15 @@ public sealed class XmbcMacroTextImporter : IMacroImporter
 
     private static IReadOnlyList<MacroEvent> Parse(
         string text,
-        ICollection<ConversionDiagnostic> diagnostics)
+        ICollection<ConversionDiagnostic> diagnostics,
+        MacroLimits limits)
     {
         var result = new List<MacroEvent>();
         InputTransition? explicitTransition = null;
         var pendingModifiers = new List<(int VirtualKey, string Name, bool IsExtended)>();
         long? pendingHoldMilliseconds = null;
         long sequence = 0;
+        var eventLimitReached = false;
 
         for (var index = 0; index < text.Length;)
         {
@@ -180,6 +191,12 @@ public sealed class XmbcMacroTextImporter : IMacroImporter
                     pendingHoldMilliseconds = null;
                 }
 
+                if (TrimToEventLimit(result, diagnostics, ref sequence, limits.MaximumEventsPerMacro))
+                {
+                    eventLimitReached = true;
+                    break;
+                }
+
                 continue;
             }
 
@@ -207,14 +224,42 @@ public sealed class XmbcMacroTextImporter : IMacroImporter
                 pendingModifiers.Clear();
                 pendingHoldMilliseconds = null;
             }
+
+            if (TrimToEventLimit(result, diagnostics, ref sequence, limits.MaximumEventsPerMacro))
+            {
+                eventLimitReached = true;
+                break;
+            }
         }
 
-        if (pendingModifiers.Count > 0 || pendingHoldMilliseconds is not null)
+        if (!eventLimitReached && (pendingModifiers.Count > 0 || pendingHoldMilliseconds is not null))
         {
             AddUnknown(result, diagnostics, ref sequence, "end-of-macro", "宏结尾存在没有目标按键的辅助键或 HOLD 标记");
+            _ = TrimToEventLimit(result, diagnostics, ref sequence, limits.MaximumEventsPerMacro);
         }
 
         return result;
+    }
+
+    private static bool TrimToEventLimit(
+        List<MacroEvent> events,
+        ICollection<ConversionDiagnostic> diagnostics,
+        ref long sequence,
+        int maximumEvents)
+    {
+        if (events.Count <= maximumEvents)
+        {
+            return false;
+        }
+
+        events.RemoveRange(maximumEvents, events.Count - maximumEvents);
+        events[^1] = new UnknownMacroEvent(maximumEvents - 1, "import.event-limit");
+        sequence = events.Count;
+        diagnostics.Add(new ConversionDiagnostic(
+            "IMPORT_EVENT_LIMIT",
+            DiagnosticSeverity.Error,
+            $"宏事件数超过上限 {maximumEvents}，已停止继续解析。"));
+        return true;
     }
 
     private static void EmitKey(
@@ -643,8 +688,7 @@ public sealed class XmbcMacroTextImporter : IMacroImporter
             "XMBC_TOKEN_UNKNOWN",
             DiagnosticSeverity.Error,
             $"{reason}：{raw}",
-            sequence,
-            raw));
+            sequence));
         sequence++;
     }
 

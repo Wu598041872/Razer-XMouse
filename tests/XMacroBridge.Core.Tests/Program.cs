@@ -37,6 +37,8 @@ var tests = new (string Name, Action Run)[]
     ("UTF BOM encodings import consistently", UtfBomEncodingsImportConsistently),
     ("XML importers enforce supported encoding policy", XmlImportersEnforceSupportedEncodingPolicy),
     ("Format diagnostics sanitize source paths", FormatDiagnosticsSanitizeSourcePaths),
+    ("Importers stop at the configured event limit", ImportersStopAtConfiguredEventLimit),
+    ("Default event limit handles a 100k-event input", DefaultEventLimitHandlesLargeInput),
     ("XMBC settings extract action 28 macros", XmbcSettingsExtractAction28Macros),
     ("XMBC settings reject DTD", XmbcSettingsRejectDtd),
     ("XMBC text export round trips", XmbcTextExportRoundTrips),
@@ -221,6 +223,7 @@ static void XmbcUnknownTokenIsPreservedAsError()
 
     Assert(result.Documents[0].Events.OfType<UnknownMacroEvent>().Any(), "Unknown token must remain in the event model.");
     Assert(result.Diagnostics.Any(item => item.Code == "XMBC_TOKEN_UNKNOWN"), "Unknown token diagnostic is missing.");
+    Assert(result.Diagnostics.Single(item => item.Code == "XMBC_TOKEN_UNKNOWN").SourceContext is null, "Unknown XMBC raw token must not become diagnostic source context.");
     Assert(new MacroValidator().Validate(result.Documents[0]).HasErrors, "Unknown token must block validation.");
 }
 
@@ -501,6 +504,55 @@ static void FormatDiagnosticsSanitizeSourcePaths()
     using var textStream = new MemoryStream([0xFF]);
     var text = new XmbcMacroTextImporter().ImportAsync(textStream, privateDirectory + @"\secret.txt").GetAwaiter().GetResult();
     Assert(text.Diagnostics.All(item => item.SourceContext is null || item.SourceContext == "secret.txt"), "XMBC text diagnostic leaked an absolute source path.");
+}
+
+static void ImportersStopAtConfiguredEventLimit()
+{
+    var limits = new MacroLimits(MaximumEventsPerMacro: 3);
+    const string razerXml = "<Macro><Name>Limited XML</Name><MacroEvents>" +
+                            "<MacroEvent><Type>0</Type><Number>0.001</Number></MacroEvent>" +
+                            "<MacroEvent><Type>0</Type><Number>0.001</Number></MacroEvent>" +
+                            "<MacroEvent><Type>0</Type><Number>0.001</Number></MacroEvent>" +
+                            "<MacroEvent><Type>0</Type><Number>0.001</Number></MacroEvent>" +
+                            "</MacroEvents></Macro>";
+    using var razerStream = new MemoryStream(Encoding.UTF8.GetBytes(razerXml));
+    var razer = new RazerMacroXmlImporter(limits).ImportAsync(razerStream, "limited.xml").GetAwaiter().GetResult();
+    Assert(razer.Documents.Single().Events.Count == 3 && razer.Diagnostics.Any(item => item.Code == "IMPORT_EVENT_LIMIT"), "Razer XML did not stop at the configured event limit.");
+    Assert(razer.Documents.Single().Events[^1] is UnknownMacroEvent && new MacroValidator().Validate(razer.Documents.Single()).HasErrors, "Truncated Razer XML must remain blocked from export.");
+
+    const string inner = "{\"guid\":\"aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb\",\"macroEvents\":[" +
+                         "{\"Type\":0,\"Number\":0.001},{\"Type\":0,\"Number\":0.001}," +
+                         "{\"Type\":0,\"Number\":0.001},{\"Type\":0,\"Number\":0.001}]}";
+    var payload = Convert.ToBase64String(Encoding.UTF8.GetBytes(inner));
+    var package = $"{{\"macros\":[{{\"name\":\"Limited Synapse\",\"payload\":\"{payload}\"}}]}}";
+    using var synapseStream = new MemoryStream(Encoding.UTF8.GetBytes(package));
+    var synapse = new Synapse4Importer(limits).ImportAsync(synapseStream, "limited.synapse4").GetAwaiter().GetResult();
+    Assert(synapse.Documents.Single().Events.Count == 3 && synapse.Diagnostics.Any(item => item.Code == "IMPORT_EVENT_LIMIT"), "Synapse did not stop at the configured event limit.");
+    Assert(synapse.Documents.Single().Events[^1] is UnknownMacroEvent && new MacroValidator().Validate(synapse.Documents.Single()).HasErrors, "Truncated Synapse macro must remain blocked from export.");
+
+    using var textStream = new MemoryStream(Encoding.UTF8.GetBytes("ab"));
+    var text = new XmbcMacroTextImporter(limits).ImportAsync(textStream, "limited.txt").GetAwaiter().GetResult();
+    Assert(text.Documents.Single().Events.Count == 3 && text.Diagnostics.Any(item => item.Code == "IMPORT_EVENT_LIMIT"), "XMBC text did not stop at the configured event limit.");
+    Assert(text.Documents.Single().Events[^1] is UnknownMacroEvent && new MacroValidator().Validate(text.Documents.Single()).HasErrors, "Truncated XMBC text must remain blocked from export.");
+
+    const string settingsXml = "<root><version major='2'/><Default><Left action='28' keys='ab'/></Default></root>";
+    using var settingsStream = new MemoryStream(Encoding.UTF8.GetBytes(settingsXml));
+    var settings = new XmbcSettingsImporter(limits).ImportAsync(settingsStream, "limited-settings.xml").GetAwaiter().GetResult();
+    Assert(settings.Documents.Single().Events.Count == 3 && settings.Diagnostics.Any(item => item.Code == "IMPORT_EVENT_LIMIT"), "XMBC settings did not propagate the configured event limit.");
+    Assert(settings.Documents.Single().Events[^1] is UnknownMacroEvent && new MacroValidator().Validate(settings.Documents.Single()).HasErrors, "Truncated XMBC settings macro must remain blocked from export.");
+}
+
+static void DefaultEventLimitHandlesLargeInput()
+{
+    var macroText = new string('a', 50_001);
+    using var stream = new MemoryStream(Encoding.UTF8.GetBytes(macroText));
+    var result = new XmbcMacroTextImporter().ImportAsync(stream, "large.txt").GetAwaiter().GetResult();
+    var document = result.Documents.Single();
+
+    Assert(document.Events.Count == 100_000, "Default importer event limit did not cap the returned model at 100,000 events.");
+    Assert(document.Events[^1] is UnknownMacroEvent { SourceType: "import.event-limit" }, "Large-input truncation sentinel is absent.");
+    Assert(result.Diagnostics.Count(item => item.Code == "IMPORT_EVENT_LIMIT") == 1, "Large input requires one event-limit diagnostic.");
+    Assert(new MacroValidator().Validate(document).HasErrors, "A truncated large input must remain blocked from export.");
 }
 
 static void XmbcSettingsExtractAction28Macros()

@@ -11,13 +11,22 @@ namespace XMacroBridge.Formats.Razer;
 
 public sealed class Synapse4Importer : IMacroImporter
 {
-    private static readonly MacroLimits DefaultLimits = new();
+    private readonly MacroLimits limits;
     private static readonly JsonDocumentOptions JsonOptions = new()
     {
         AllowTrailingCommas = false,
         CommentHandling = JsonCommentHandling.Disallow,
         MaxDepth = 64,
     };
+
+    public Synapse4Importer(MacroLimits? limits = null)
+    {
+        this.limits = limits ?? new MacroLimits();
+        if (this.limits.MaximumEventsPerMacro < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(limits), "事件上限必须至少为 1。 ");
+        }
+    }
 
     public string FormatId => "razer.synapse4";
 
@@ -42,7 +51,7 @@ public sealed class Synapse4Importer : IMacroImporter
         try
         {
             await using var buffer = new MemoryStream();
-            await CopyWithLimitAsync(input, buffer, DefaultLimits.MaximumFileBytes, cancellationToken).ConfigureAwait(false);
+            await CopyWithLimitAsync(input, buffer, limits.MaximumFileBytes, cancellationToken).ConfigureAwait(false);
             var bytes = buffer.ToArray();
             var outerText = TextEncodingDetector.Decode(bytes);
             using var outer = JsonDocument.Parse(outerText, JsonOptions);
@@ -61,7 +70,7 @@ public sealed class Synapse4Importer : IMacroImporter
                 cancellationToken.ThrowIfCancellationRequested();
                 try
                 {
-                    documents.Add(ParseMacroEntry(macroEntry, macroIndex, sourceName, diagnostics));
+                    documents.Add(ParseMacroEntry(macroEntry, macroIndex, sourceName, diagnostics, limits));
                 }
                 catch (Exception exception) when (exception is FormatException or JsonException or InvalidDataException or OverflowException or DecoderFallbackException)
                 {
@@ -104,7 +113,8 @@ public sealed class Synapse4Importer : IMacroImporter
         JsonElement macroEntry,
         int macroIndex,
         string? sourceName,
-        ICollection<ConversionDiagnostic> diagnostics)
+        ICollection<ConversionDiagnostic> diagnostics,
+        MacroLimits limits)
     {
         if (macroEntry.ValueKind != JsonValueKind.Object)
         {
@@ -124,7 +134,7 @@ public sealed class Synapse4Importer : IMacroImporter
             throw new FormatException("payload 不是有效 Base64。", exception);
         }
 
-        if (payload.LongLength > DefaultLimits.MaximumFileBytes)
+        if (payload.LongLength > limits.MaximumFileBytes)
         {
             throw new InvalidDataException("解码后的宏载荷超过大小上限。 ");
         }
@@ -144,14 +154,15 @@ public sealed class Synapse4Importer : IMacroImporter
             throw new FormatException("宏载荷缺少 macroEvents 数组。 ");
         }
 
-        var events = ParseEvents(macroEvents, diagnostics, name);
+        var events = ParseEvents(macroEvents, diagnostics, name, limits);
         return new MacroDocument(id, name, events, "razer.synapse4.macro", sourceName);
     }
 
     private static IReadOnlyList<MacroEvent> ParseEvents(
         JsonElement macroEvents,
         ICollection<ConversionDiagnostic> diagnostics,
-        string macroName)
+        string macroName,
+        MacroLimits limits)
     {
         var events = new List<MacroEvent>();
         long sequence = 0;
@@ -159,6 +170,13 @@ public sealed class Synapse4Importer : IMacroImporter
         {
             if (item.ValueKind != JsonValueKind.Object)
             {
+                if (sequence >= limits.MaximumEventsPerMacro)
+                {
+                    events[^1] = new UnknownMacroEvent(sequence - 1, "import.event-limit");
+                    AddEventLimitDiagnostic(diagnostics, macroName, limits.MaximumEventsPerMacro);
+                    break;
+                }
+
                 var invalidSequence = sequence++;
                 events.Add(new UnknownMacroEvent(invalidSequence, "invalid-json-event", item.GetRawText()));
                 diagnostics.Add(new ConversionDiagnostic(
@@ -174,6 +192,13 @@ public sealed class Synapse4Importer : IMacroImporter
             if (type == "actionBar")
             {
                 continue;
+            }
+
+            if (sequence >= limits.MaximumEventsPerMacro)
+            {
+                events[^1] = new UnknownMacroEvent(sequence - 1, "import.event-limit");
+                AddEventLimitDiagnostic(diagnostics, macroName, limits.MaximumEventsPerMacro);
+                break;
             }
 
             var eventSequence = sequence++;
@@ -219,6 +244,16 @@ public sealed class Synapse4Importer : IMacroImporter
 
         return events;
     }
+
+    private static void AddEventLimitDiagnostic(
+        ICollection<ConversionDiagnostic> diagnostics,
+        string macroName,
+        int maximumEvents) =>
+        diagnostics.Add(new ConversionDiagnostic(
+            "IMPORT_EVENT_LIMIT",
+            DiagnosticSeverity.Error,
+            $"宏“{macroName}”的事件数超过上限 {maximumEvents}，已停止继续解析。",
+            SourceContext: macroName));
 
     private static DelayMacroEvent ParseDelay(
         JsonElement item,

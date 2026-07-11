@@ -13,7 +13,16 @@ namespace XMacroBridge.Formats.Xmbc;
 
 public sealed partial class XmbcSettingsImporter : IMacroImporter
 {
-    private static readonly MacroLimits DefaultLimits = new();
+    private readonly MacroLimits limits;
+
+    public XmbcSettingsImporter(MacroLimits? limits = null)
+    {
+        this.limits = limits ?? new MacroLimits();
+        if (this.limits.MaximumEventsPerMacro < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(limits), "事件上限必须至少为 1。 ");
+        }
+    }
 
     public string FormatId => "xmbc.settings.xml";
 
@@ -41,7 +50,7 @@ public sealed partial class XmbcSettingsImporter : IMacroImporter
         try
         {
             await using var buffer = new MemoryStream();
-            await CopyWithLimitAsync(input, buffer, DefaultLimits.MaximumFileBytes, cancellationToken).ConfigureAwait(false);
+            await CopyWithLimitAsync(input, buffer, limits.MaximumFileBytes, cancellationToken).ConfigureAwait(false);
             TextEncodingDetector.ValidateXmlEncoding(buffer.GetBuffer().AsSpan(0, checked((int)buffer.Length)));
             buffer.Position = 0;
 
@@ -50,7 +59,7 @@ public sealed partial class XmbcSettingsImporter : IMacroImporter
                 Async = true,
                 DtdProcessing = DtdProcessing.Prohibit,
                 XmlResolver = null,
-                MaxCharactersInDocument = DefaultLimits.MaximumFileBytes,
+                MaxCharactersInDocument = limits.MaximumFileBytes,
                 IgnoreComments = true,
                 IgnoreWhitespace = true,
             };
@@ -66,7 +75,7 @@ public sealed partial class XmbcSettingsImporter : IMacroImporter
             foreach (var mapping in xml.Descendants().Where(IsSimulatedKeysMapping))
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var document = await ParseMappingAsync(mapping, sourceName, diagnostics, cancellationToken).ConfigureAwait(false);
+                var document = await ParseMappingAsync(mapping, sourceName, diagnostics, limits, cancellationToken).ConfigureAwait(false);
                 documents.Add(document);
             }
 
@@ -97,12 +106,13 @@ public sealed partial class XmbcSettingsImporter : IMacroImporter
         XElement mapping,
         string? sourceName,
         ICollection<ConversionDiagnostic> aggregateDiagnostics,
+        MacroLimits limits,
         CancellationToken cancellationToken)
     {
         var keys = (string?)mapping.Attribute("keys") ?? string.Empty;
         var name = BuildMacroName(mapping);
         await using var textStream = new MemoryStream(Encoding.UTF8.GetBytes(keys));
-        var parsed = await new XmbcMacroTextImporter()
+        var parsed = await new XmbcMacroTextImporter(limits)
             .ImportAsync(textStream, name + ".txt", cancellationToken)
             .ConfigureAwait(false);
         var parsedDocument = parsed.Documents.Single();

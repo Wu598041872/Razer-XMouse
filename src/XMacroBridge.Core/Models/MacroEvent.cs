@@ -8,7 +8,8 @@ public sealed record KeyMacroEvent(
     long Sequence,
     int VirtualKey,
     InputTransition Transition,
-    string? DisplayName = null) : MacroEvent(Sequence);
+    string? DisplayName = null,
+    bool IsExtended = false) : MacroEvent(Sequence);
 
 public sealed record MouseMacroEvent(
     long Sequence,

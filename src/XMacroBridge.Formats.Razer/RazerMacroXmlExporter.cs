@@ -23,6 +23,15 @@ public sealed class RazerMacroXmlExporter : IMacroExporter
 
         var diagnostics = new List<ConversionDiagnostic>();
         diagnostics.AddRange(new MacroValidator().Validate(document).Diagnostics);
+        foreach (var key in document.Events.OfType<KeyMacroEvent>().Where(item => item.IsExtended))
+        {
+            diagnostics.Add(new ConversionDiagnostic(
+                "RAZER_EXPORT_EXTENDED_KEY_UNSUPPORTED",
+                DiagnosticSeverity.Error,
+                $"尚未确认雷云 XML 对扩展虚拟键码 {key.VirtualKey} 的编码方式。",
+                key.Sequence));
+        }
+
         foreach (var mouse in document.Events.OfType<MouseMacroEvent>())
         {
             if (mouse.Button is not MouseButton.Left and not MouseButton.Right)

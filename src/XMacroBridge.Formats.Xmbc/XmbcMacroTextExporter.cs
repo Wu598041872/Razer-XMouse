@@ -34,7 +34,7 @@ public sealed class XmbcMacroTextExporter : IMacroExporter
                         builder.Append(delay.Milliseconds.ToString(CultureInfo.InvariantCulture));
                         builder.Append('}');
                         break;
-                    case KeyMacroEvent key when TryFormatKey(key.VirtualKey, out var keyText):
+                    case KeyMacroEvent key when TryFormatKey(key, out var keyText):
                         builder.Append(key.Transition == InputTransition.Down ? "{PRESS}" : "{RELEASE}");
                         builder.Append(keyText);
                         break;
@@ -69,23 +69,76 @@ public sealed class XmbcMacroTextExporter : IMacroExporter
         return diagnostics;
     }
 
-    private static bool TryFormatKey(int virtualKey, out string text)
+    private static bool TryFormatKey(KeyMacroEvent key, out string text)
     {
-        if (virtualKey is >= 0x41 and <= 0x5A or >= 0x30 and <= 0x39)
+        if (key.IsExtended)
         {
-            text = ((char)virtualKey).ToString().ToLowerInvariant();
+            text = $"{{EXT:{key.VirtualKey.ToString(CultureInfo.InvariantCulture)}}}";
             return true;
         }
 
-        text = virtualKey switch
+        if (key.VirtualKey is >= 0x41 and <= 0x5A or >= 0x30 and <= 0x39)
         {
-            0x10 => "{SHIFT}",
-            0x11 => "{CTRL}",
-            0x12 => "{ALT}",
-            0x20 => " ",
-            _ => string.Empty,
+            text = ((char)key.VirtualKey).ToString().ToLowerInvariant();
+            return true;
+        }
+
+        if (key.VirtualKey is >= 0x70 and <= 0x87)
+        {
+            text = $"{{F{key.VirtualKey - 0x70 + 1}}}";
+            return true;
+        }
+
+        if (key.VirtualKey is >= 0x60 and <= 0x69)
+        {
+            text = $"{{NUM{key.VirtualKey - 0x60}}}";
+            return true;
+        }
+
+        text = key.VirtualKey switch
+        {
+            0x08 => "{BACKSPACE}",
+            0x09 => "{TAB}",
+            0x0D => "{RETURN}",
+            0x13 => "{PAUSE}",
+            0x14 => "{CAPSLOCK}",
+            0x1B => "{ESCAPE}",
+            0x20 => "{SPACE}",
+            0x21 => "{PGUP}",
+            0x22 => "{PGDN}",
+            0x23 => "{END}",
+            0x24 => "{HOME}",
+            0x25 => "{LEFT}",
+            0x26 => "{UP}",
+            0x27 => "{RIGHT}",
+            0x28 => "{DOWN}",
+            0x2C => "{PRTSCN}",
+            0x2D => "{INS}",
+            0x2E => "{DEL}",
+            0x6A => "{NUM*}",
+            0x6B => "{NUM+}",
+            0x6D => "{NUM-}",
+            0x6E => "{NUM.}",
+            0x6F => "{NUM/}",
+            0x90 => "{NUMLOCK}",
+            0x91 => "{SCROLLLOCK}",
+            0xA6 => "{BACK}",
+            0xA7 => "{FORWARD}",
+            0xA8 => "{REFRESH}",
+            0xA9 => "{STOP}",
+            0xAA => "{SEARCH}",
+            0xAB => "{FAVORITES}",
+            0xAC => "{WEBHOME}",
+            0xAD => "{MUTE}",
+            0xAE => "{VOL-}",
+            0xAF => "{VOL+}",
+            0xB0 => "{MEDIANEXT}",
+            0xB1 => "{MEDIAPREV}",
+            0xB2 => "{MEDIASTOP}",
+            0xB3 => "{MEDIAPLAY}",
+            _ => $"{{VKC:{key.VirtualKey.ToString(CultureInfo.InvariantCulture)}}}",
         };
-        return text.Length > 0;
+        return true;
     }
 
     private static bool TryFormatMouse(MouseMacroEvent mouse, out string text)
@@ -96,6 +149,20 @@ public sealed class XmbcMacroTextExporter : IMacroExporter
             (MouseButton.Left, InputTransition.Up) => "{LMBU}",
             (MouseButton.Right, InputTransition.Down) => "{RMBD}",
             (MouseButton.Right, InputTransition.Up) => "{RMBU}",
+            (MouseButton.Middle, InputTransition.Down) => "{MMBD}",
+            (MouseButton.Middle, InputTransition.Up) => "{MMBU}",
+            (MouseButton.XButton1, InputTransition.Down) => "{MB4D}",
+            (MouseButton.XButton1, InputTransition.Up) => "{MB4U}",
+            (MouseButton.XButton2, InputTransition.Down) => "{MB5D}",
+            (MouseButton.XButton2, InputTransition.Up) => "{MB5U}",
+            (MouseButton.WheelUp, InputTransition.Down) => "{MWUP}",
+            (MouseButton.WheelUp, InputTransition.Up) => string.Empty,
+            (MouseButton.WheelDown, InputTransition.Down) => "{MWDN}",
+            (MouseButton.WheelDown, InputTransition.Up) => string.Empty,
+            (MouseButton.TiltLeft, InputTransition.Down) => "{TILTL}",
+            (MouseButton.TiltLeft, InputTransition.Up) => string.Empty,
+            (MouseButton.TiltRight, InputTransition.Down) => "{TILTR}",
+            (MouseButton.TiltRight, InputTransition.Up) => string.Empty,
             _ => string.Empty,
         };
         return text.Length > 0;

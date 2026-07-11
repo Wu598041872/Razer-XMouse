@@ -16,16 +16,13 @@ public sealed class XmbcMacroTextImporter : IMacroImporter
 
     public bool CanImport(ReadOnlySpan<byte> header, string? fileName)
     {
-        if (!string.IsNullOrWhiteSpace(fileName) &&
-            !string.Equals(Path.GetExtension(fileName), ".txt", StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(fileName))
         {
-            return false;
+            return string.Equals(Path.GetExtension(fileName), ".txt", StringComparison.OrdinalIgnoreCase);
         }
 
         var text = Encoding.UTF8.GetString(header);
-        return text.Contains("{WAITMS:", StringComparison.OrdinalIgnoreCase)
-            || text.Contains("{PRESS}", StringComparison.OrdinalIgnoreCase)
-            || text.Contains("{LMB}", StringComparison.OrdinalIgnoreCase);
+        return text.Length > 0 && (text.Contains('{') || text.Any(char.IsLetterOrDigit));
     }
 
     public async Task<MacroImportResult> ImportAsync(
@@ -64,7 +61,9 @@ public sealed class XmbcMacroTextImporter : IMacroImporter
         ICollection<ConversionDiagnostic> diagnostics)
     {
         var result = new List<MacroEvent>();
-        InputTransition? pendingTransition = null;
+        InputTransition? explicitTransition = null;
+        var pendingModifiers = new List<(int VirtualKey, string Name, bool IsExtended)>();
+        long? pendingHoldMilliseconds = null;
         long sequence = 0;
 
         for (var index = 0; index < text.Length;)
@@ -82,39 +81,47 @@ public sealed class XmbcMacroTextImporter : IMacroImporter
                 index = closingBrace + 1;
                 if (token.Equals("PRESS", StringComparison.OrdinalIgnoreCase))
                 {
-                    pendingTransition = SetPendingTransition(pendingTransition, InputTransition.Down, result, diagnostics, ref sequence, token);
+                    explicitTransition = InputTransition.Down;
                 }
                 else if (token.Equals("RELEASE", StringComparison.OrdinalIgnoreCase))
                 {
-                    pendingTransition = SetPendingTransition(pendingTransition, InputTransition.Up, result, diagnostics, ref sequence, token);
+                    explicitTransition = InputTransition.Up;
                 }
-                else if (token.StartsWith("WAITMS:", StringComparison.OrdinalIgnoreCase))
+                else if (token.Equals("CLEAR", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (pendingTransition is not null)
+                    pendingModifiers.Clear();
+                }
+                else if (TryParseDelayToken(token, out var delayMilliseconds))
+                {
+                    result.Add(new DelayMacroEvent(sequence++, delayMilliseconds));
+                }
+                else if (TryParseHoldToken(token, out var holdMilliseconds))
+                {
+                    if (explicitTransition is not null)
                     {
-                        AddUnknown(result, diagnostics, ref sequence, "{" + token + "}", "PRESS/RELEASE 后必须紧跟按键");
-                        pendingTransition = null;
-                        continue;
-                    }
-
-                    var number = token[7..];
-                    if (!long.TryParse(number, NumberStyles.None, CultureInfo.InvariantCulture, out var milliseconds))
-                    {
-                        AddUnknown(result, diagnostics, ref sequence, "{" + token + "}", "WAITMS 延时不是有效非负整数");
+                        AddUnknown(result, diagnostics, ref sequence, "{" + token + "}", "HOLD/HOLDMS 不能与持续 PRESS/RELEASE 模式组合");
                     }
                     else
                     {
-                        result.Add(new DelayMacroEvent(sequence++, milliseconds));
+                        pendingHoldMilliseconds = holdMilliseconds;
                     }
                 }
-                else if (TryParseMouseToken(token, out var button, out var explicitTransition))
+                else if (TryParseModifier(token, out var modifierKey, out var modifierName, out var modifierExtended))
                 {
-                    if (pendingTransition is not null)
+                    if (pendingModifiers.All(item => item.VirtualKey != modifierKey))
                     {
-                        AddUnknown(result, diagnostics, ref sequence, "{" + token + "}", "鼠标标记不能再使用 PRESS/RELEASE 前缀");
-                        pendingTransition = null;
+                        pendingModifiers.Add((modifierKey, modifierName, modifierExtended));
                     }
-                    else if (explicitTransition is { } transition)
+                }
+                else if (TryParseMouseToken(token, out var button, out var mouseTransition))
+                {
+                    if (pendingModifiers.Count > 0 || pendingHoldMilliseconds is not null)
+                    {
+                        AddUnknown(result, diagnostics, ref sequence, "{" + token + "}", "辅助键或 HOLD 标记不能应用到鼠标标记");
+                        pendingModifiers.Clear();
+                        pendingHoldMilliseconds = null;
+                    }
+                    else if (mouseTransition is { } transition)
                     {
                         result.Add(new MouseMacroEvent(sequence++, button, transition));
                     }
@@ -124,14 +131,27 @@ public sealed class XmbcMacroTextImporter : IMacroImporter
                         result.Add(new MouseMacroEvent(sequence++, button, InputTransition.Up));
                     }
                 }
-                else if (TryParseNamedKey(token, out var virtualKey))
+                else if (TryParseVirtualKeyToken(token, out var virtualKey, out var keyName, out var isExtended))
                 {
-                    AddKey(result, ref sequence, virtualKey, token, ref pendingTransition);
+                    EmitKey(
+                        result,
+                        ref sequence,
+                        virtualKey,
+                        keyName,
+                        isExtended,
+                        explicitTransition,
+                        pendingModifiers,
+                        ref pendingHoldMilliseconds);
+                }
+                else if (LooksLikeRandomDelay(token))
+                {
+                    AddUnknown(result, diagnostics, ref sequence, "{" + token + "}", "随机延时尚未纳入统一事件模型");
                 }
                 else
                 {
-                    AddUnknown(result, diagnostics, ref sequence, "{" + token + "}", "未知 XMBC 标记");
-                    pendingTransition = null;
+                    AddUnknown(result, diagnostics, ref sequence, "{" + token + "}", "未知或尚未支持的 XMBC 标记");
+                    pendingModifiers.Clear();
+                    pendingHoldMilliseconds = null;
                 }
 
                 continue;
@@ -145,55 +165,287 @@ public sealed class XmbcMacroTextImporter : IMacroImporter
 
             if (TryMapCharacter(character, out var keyCode, out var displayName))
             {
-                AddKey(result, ref sequence, keyCode, displayName, ref pendingTransition);
+                EmitKey(
+                    result,
+                    ref sequence,
+                    keyCode,
+                    displayName,
+                    false,
+                    explicitTransition,
+                    pendingModifiers,
+                    ref pendingHoldMilliseconds);
             }
             else
             {
                 AddUnknown(result, diagnostics, ref sequence, character.ToString(), "尚未支持的普通字符");
-                pendingTransition = null;
+                pendingModifiers.Clear();
+                pendingHoldMilliseconds = null;
             }
         }
 
-        if (pendingTransition is not null)
+        if (pendingModifiers.Count > 0 || pendingHoldMilliseconds is not null)
         {
-            AddUnknown(result, diagnostics, ref sequence, pendingTransition.ToString()!, "宏结尾存在没有目标按键的 PRESS/RELEASE");
+            AddUnknown(result, diagnostics, ref sequence, "end-of-macro", "宏结尾存在没有目标按键的辅助键或 HOLD 标记");
         }
 
         return result;
     }
 
-    private static InputTransition? SetPendingTransition(
-        InputTransition? current,
-        InputTransition next,
-        ICollection<MacroEvent> events,
-        ICollection<ConversionDiagnostic> diagnostics,
-        ref long sequence,
-        string token)
-    {
-        if (current is not null)
-        {
-            AddUnknown(events, diagnostics, ref sequence, "{" + token + "}", "连续出现多个 PRESS/RELEASE 标记");
-        }
-
-        return next;
-    }
-
-    private static void AddKey(
+    private static void EmitKey(
         ICollection<MacroEvent> events,
         ref long sequence,
         int virtualKey,
         string displayName,
-        ref InputTransition? pendingTransition)
+        bool isExtended,
+        InputTransition? explicitTransition,
+        IList<(int VirtualKey, string Name, bool IsExtended)> pendingModifiers,
+        ref long? pendingHoldMilliseconds)
     {
-        if (pendingTransition is { } transition)
+        if (explicitTransition is { } transition)
         {
-            events.Add(new KeyMacroEvent(sequence++, virtualKey, transition, displayName));
-            pendingTransition = null;
+            foreach (var modifier in pendingModifiers)
+            {
+                events.Add(new KeyMacroEvent(sequence++, modifier.VirtualKey, transition, modifier.Name, modifier.IsExtended));
+            }
+
+            events.Add(new KeyMacroEvent(sequence++, virtualKey, transition, displayName, isExtended));
+            pendingModifiers.Clear();
+            pendingHoldMilliseconds = null;
             return;
         }
 
-        events.Add(new KeyMacroEvent(sequence++, virtualKey, InputTransition.Down, displayName));
-        events.Add(new KeyMacroEvent(sequence++, virtualKey, InputTransition.Up, displayName));
+        foreach (var modifier in pendingModifiers)
+        {
+            events.Add(new KeyMacroEvent(sequence++, modifier.VirtualKey, InputTransition.Down, modifier.Name, modifier.IsExtended));
+        }
+
+        events.Add(new KeyMacroEvent(sequence++, virtualKey, InputTransition.Down, displayName, isExtended));
+        if (pendingHoldMilliseconds is { } hold)
+        {
+            events.Add(new DelayMacroEvent(sequence++, hold));
+        }
+
+        events.Add(new KeyMacroEvent(sequence++, virtualKey, InputTransition.Up, displayName, isExtended));
+        for (var index = pendingModifiers.Count - 1; index >= 0; index--)
+        {
+            var modifier = pendingModifiers[index];
+            events.Add(new KeyMacroEvent(sequence++, modifier.VirtualKey, InputTransition.Up, modifier.Name, modifier.IsExtended));
+        }
+
+        pendingModifiers.Clear();
+        pendingHoldMilliseconds = null;
+    }
+
+    private static bool TryParseDelayToken(string token, out long milliseconds)
+    {
+        milliseconds = 0;
+        if (TryGetNumericSuffix(token, "WAITMS", out var millisecondsText))
+        {
+            return long.TryParse(millisecondsText, NumberStyles.None, CultureInfo.InvariantCulture, out milliseconds);
+        }
+
+        if (TryGetNumericSuffix(token, "WAIT", out var secondsText) &&
+            long.TryParse(secondsText, NumberStyles.None, CultureInfo.InvariantCulture, out var seconds))
+        {
+            try
+            {
+                milliseconds = checked(seconds * 1000);
+                return true;
+            }
+            catch (OverflowException)
+            {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryParseHoldToken(string token, out long milliseconds)
+    {
+        milliseconds = 0;
+        if (TryGetNumericSuffix(token, "HOLDMS", out var millisecondsText))
+        {
+            return long.TryParse(millisecondsText, NumberStyles.None, CultureInfo.InvariantCulture, out milliseconds);
+        }
+
+        if (TryGetNumericSuffix(token, "HOLD", out var secondsText) &&
+            long.TryParse(secondsText, NumberStyles.None, CultureInfo.InvariantCulture, out var seconds))
+        {
+            try
+            {
+                milliseconds = checked(seconds * 1000);
+                return true;
+            }
+            catch (OverflowException)
+            {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryGetNumericSuffix(string token, string prefix, out string suffix)
+    {
+        suffix = string.Empty;
+        if (!token.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        suffix = token[prefix.Length..];
+        if (suffix.StartsWith(':'))
+        {
+            suffix = suffix[1..];
+        }
+
+        return suffix.Length > 0 && suffix.All(char.IsDigit);
+    }
+
+    private static bool LooksLikeRandomDelay(string token) =>
+        token.StartsWith("WAITMS:", StringComparison.OrdinalIgnoreCase) && token.Contains('-');
+
+    private static bool TryParseModifier(
+        string token,
+        out int virtualKey,
+        out string displayName,
+        out bool isExtended)
+    {
+        (virtualKey, displayName, isExtended) = token.ToUpperInvariant() switch
+        {
+            "CTRL" => (0x11, "CTRL", false),
+            "RCTRL" => (0xA3, "RCTRL", true),
+            "ALT" => (0x12, "ALT", false),
+            "RALT" => (0xA5, "RALT", true),
+            "SHIFT" => (0x10, "SHIFT", false),
+            "RSHIFT" => (0xA1, "RSHIFT", false),
+            "LWIN" => (0x5B, "LWIN", true),
+            "RWIN" => (0x5C, "RWIN", true),
+            "APPS" => (0x5D, "APPS", true),
+            _ => (0, string.Empty, false),
+        };
+        return virtualKey != 0;
+    }
+
+    private static bool TryParseVirtualKeyToken(
+        string token,
+        out int virtualKey,
+        out string displayName,
+        out bool isExtended)
+    {
+        displayName = token.ToUpperInvariant();
+        isExtended = false;
+        if (TryParseFunctionKey(displayName, out virtualKey))
+        {
+            return true;
+        }
+
+        if (TryParseNumpadKey(displayName, out virtualKey, out isExtended))
+        {
+            return true;
+        }
+
+        if (TryParseNumericKeyCode(displayName, "VKC", out virtualKey))
+        {
+            return true;
+        }
+
+        if (TryParseNumericKeyCode(displayName, "EXT", out virtualKey))
+        {
+            isExtended = true;
+            return true;
+        }
+
+        virtualKey = displayName switch
+        {
+            "DEL" => 0x2E,
+            "INS" => 0x2D,
+            "PGUP" => 0x21,
+            "PGDN" => 0x22,
+            "HOME" => 0x24,
+            "END" => 0x23,
+            "RETURN" => 0x0D,
+            "ESCAPE" => 0x1B,
+            "BACKSPACE" => 0x08,
+            "TAB" => 0x09,
+            "PRTSCN" => 0x2C,
+            "PAUSE" => 0x13,
+            "SPACE" => 0x20,
+            "CAPSLOCK" => 0x14,
+            "NUMLOCK" => 0x90,
+            "SCROLLLOCK" => 0x91,
+            "BREAK" => 0x03,
+            "UP" => 0x26,
+            "DOWN" => 0x28,
+            "LEFT" => 0x25,
+            "RIGHT" => 0x27,
+            "VOL+" => 0xAF,
+            "VOL-" => 0xAE,
+            "MUTE" => 0xAD,
+            "MEDIAPLAY" => 0xB3,
+            "MEDIASTOP" => 0xB2,
+            "MEDIANEXT" => 0xB0,
+            "MEDIAPREV" => 0xB1,
+            "BACK" => 0xA6,
+            "FORWARD" => 0xA7,
+            "REFRESH" => 0xA8,
+            "STOP" => 0xA9,
+            "SEARCH" => 0xAA,
+            "FAVORITES" => 0xAB,
+            "WEBHOME" => 0xAC,
+            _ => 0,
+        };
+        return virtualKey != 0;
+    }
+
+    private static bool TryParseFunctionKey(string token, out int virtualKey)
+    {
+        virtualKey = 0;
+        if (token.Length < 2 || token[0] != 'F' ||
+            !int.TryParse(token[1..], NumberStyles.None, CultureInfo.InvariantCulture, out var number) ||
+            number is < 1 or > 24)
+        {
+            return false;
+        }
+
+        virtualKey = 0x70 + number - 1;
+        return true;
+    }
+
+    private static bool TryParseNumpadKey(string token, out int virtualKey, out bool isExtended)
+    {
+        isExtended = false;
+        if (token.Length == 4 && token.StartsWith("NUM", StringComparison.Ordinal) && char.IsDigit(token[3]))
+        {
+            virtualKey = 0x60 + (token[3] - '0');
+            return true;
+        }
+
+        virtualKey = token switch
+        {
+            "NUM+" => 0x6B,
+            "NUM-" => 0x6D,
+            "NUM." => 0x6E,
+            "NUM/" => 0x6F,
+            "NUM*" => 0x6A,
+            "NUMENTER" => 0x0D,
+            _ => 0,
+        };
+        isExtended = token is "NUM/" or "NUMENTER";
+        return virtualKey != 0;
+    }
+
+    private static bool TryParseNumericKeyCode(string token, string prefix, out int virtualKey)
+    {
+        virtualKey = 0;
+        if (!token.StartsWith(prefix + ":", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return int.TryParse(token[(prefix.Length + 1)..], NumberStyles.Integer, CultureInfo.InvariantCulture, out virtualKey)
+            && virtualKey is >= 0 and <= 255;
     }
 
     private static bool TryMapCharacter(char character, out int virtualKey, out string displayName)
@@ -222,24 +474,14 @@ public sealed class XmbcMacroTextImporter : IMacroImporter
         return false;
     }
 
-    private static bool TryParseNamedKey(string token, out int virtualKey)
-    {
-        virtualKey = token.ToUpperInvariant() switch
-        {
-            "ALT" => 0x12,
-            "SHIFT" => 0x10,
-            "CTRL" => 0x11,
-            _ => 0,
-        };
-        return virtualKey != 0;
-    }
-
     private static bool TryParseMouseToken(
         string token,
         out MouseButton button,
         out InputTransition? transition)
     {
-        (button, transition) = token.ToUpperInvariant() switch
+        var upper = token.ToUpperInvariant().Replace("XMB1", "MB4", StringComparison.Ordinal)
+            .Replace("XMB2", "MB5", StringComparison.Ordinal);
+        (button, transition) = upper switch
         {
             "LMB" => (MouseButton.Left, (InputTransition?)null),
             "LMBD" => (MouseButton.Left, InputTransition.Down),
@@ -247,14 +489,24 @@ public sealed class XmbcMacroTextImporter : IMacroImporter
             "RMB" => (MouseButton.Right, (InputTransition?)null),
             "RMBD" => (MouseButton.Right, InputTransition.Down),
             "RMBU" => (MouseButton.Right, InputTransition.Up),
+            "MMB" => (MouseButton.Middle, (InputTransition?)null),
+            "MMBD" => (MouseButton.Middle, InputTransition.Down),
+            "MMBU" => (MouseButton.Middle, InputTransition.Up),
+            "MB4" => (MouseButton.XButton1, (InputTransition?)null),
+            "MB4D" => (MouseButton.XButton1, InputTransition.Down),
+            "MB4U" => (MouseButton.XButton1, InputTransition.Up),
+            "MB5" => (MouseButton.XButton2, (InputTransition?)null),
+            "MB5D" => (MouseButton.XButton2, InputTransition.Down),
+            "MB5U" => (MouseButton.XButton2, InputTransition.Up),
+            "MWUP" => (MouseButton.WheelUp, (InputTransition?)null),
+            "MWDN" => (MouseButton.WheelDown, (InputTransition?)null),
+            "TILTL" => (MouseButton.TiltLeft, (InputTransition?)null),
+            "TILTR" => (MouseButton.TiltRight, (InputTransition?)null),
             _ => (MouseButton.Left, (InputTransition?)null),
         };
-        return token.Equals("LMB", StringComparison.OrdinalIgnoreCase)
-            || token.Equals("LMBD", StringComparison.OrdinalIgnoreCase)
-            || token.Equals("LMBU", StringComparison.OrdinalIgnoreCase)
-            || token.Equals("RMB", StringComparison.OrdinalIgnoreCase)
-            || token.Equals("RMBD", StringComparison.OrdinalIgnoreCase)
-            || token.Equals("RMBU", StringComparison.OrdinalIgnoreCase);
+        return upper is "LMB" or "LMBD" or "LMBU" or "RMB" or "RMBD" or "RMBU"
+            or "MMB" or "MMBD" or "MMBU" or "MB4" or "MB4D" or "MB4U"
+            or "MB5" or "MB5D" or "MB5U" or "MWUP" or "MWDN" or "TILTL" or "TILTR";
     }
 
     private static void AddUnknown(

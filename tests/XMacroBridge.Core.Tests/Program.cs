@@ -26,9 +26,15 @@ var tests = new (string Name, Action Run)[]
     ("XMBC settings extract action 28 macros", XmbcSettingsExtractAction28Macros),
     ("XMBC settings reject DTD", XmbcSettingsRejectDtd),
     ("XMBC text export round trips", XmbcTextExportRoundTrips),
-    ("XMBC text export rejects unsupported key", XmbcTextExportRejectsUnsupportedKey),
+    ("XMBC text export rejects invalid key", XmbcTextExportRejectsInvalidKey),
     ("Razer XML export round trips", RazerXmlExportRoundTrips),
     ("Razer XML export rejects unsupported mouse", RazerXmlExportRejectsUnsupportedMouse),
+    ("XMBC modifiers apply to next key", XmbcModifiersApplyToNextKey),
+    ("XMBC HOLDMS applies to next key", XmbcHoldMsAppliesToNextKey),
+    ("XMBC PRESS and RELEASE span multiple keys", XmbcPressReleaseSpanMultipleKeys),
+    ("XMBC extended key and mouse tags import", XmbcExtendedTagsImport),
+    ("XMBC modifier states export round trip", XmbcModifierStatesExportRoundTrip),
+    ("Razer XML export rejects extended key", RazerXmlExportRejectsExtendedKey),
 };
 
 var failures = new List<string>();
@@ -278,15 +284,15 @@ static void XmbcTextExportRoundTrips()
     Assert(EventSignatures(imported.Documents.Single()).SequenceEqual(EventSignatures(original)), "XMBC round trip changed events.");
 }
 
-static void XmbcTextExportRejectsUnsupportedKey()
+static void XmbcTextExportRejectsInvalidKey()
 {
     var document = CreateDocument(
-        new KeyMacroEvent(0, 0x70, InputTransition.Down, "F1"),
-        new KeyMacroEvent(1, 0x70, InputTransition.Up, "F1"));
+        new KeyMacroEvent(0, 300, InputTransition.Down),
+        new KeyMacroEvent(1, 300, InputTransition.Up));
     using var output = new MemoryStream();
     var diagnostics = new XmbcMacroTextExporter().ExportAsync(document, output).GetAwaiter().GetResult();
 
-    Assert(diagnostics.Any(item => item.Code == "XMBC_EXPORT_KEY_UNSUPPORTED"), "Unsupported key diagnostic is absent.");
+    Assert(diagnostics.Any(item => item.Code == "KEY_CODE_OUT_OF_RANGE"), "Invalid key diagnostic is absent.");
     Assert(output.Length == 0, "Failed export must not write partial output.");
 }
 
@@ -325,11 +331,90 @@ static void RazerXmlExportRejectsUnsupportedMouse()
     Assert(output.Length == 0, "Failed Razer export must not write partial output.");
 }
 
+static void XmbcModifiersApplyToNextKey()
+{
+    using var stream = new MemoryStream(Encoding.UTF8.GetBytes("{CTRL}a{CTRL}s"));
+    var imported = new XmbcMacroTextImporter().ImportAsync(stream, "modifiers.txt").GetAwaiter().GetResult();
+    var document = imported.Documents.Single();
+
+    Assert(document.Events.Count == 8, "Expected two Ctrl-modified key clicks.");
+    Assert(EventSignatures(document).Take(4).SequenceEqual([
+        "key:17:Down:False",
+        "key:65:Down:False",
+        "key:65:Up:False",
+        "key:17:Up:False",
+    ]), "Modifier event order is incorrect.");
+    Assert(!new MacroValidator().Validate(document).HasErrors, "Modifier sequence should validate.");
+}
+
+static void XmbcHoldMsAppliesToNextKey()
+{
+    using var stream = new MemoryStream(Encoding.UTF8.GetBytes("{HOLDMS:50}r"));
+    var imported = new XmbcMacroTextImporter().ImportAsync(stream, "hold.txt").GetAwaiter().GetResult();
+    Assert(EventSignatures(imported.Documents.Single()).SequenceEqual([
+        "key:82:Down:False",
+        "delay:50",
+        "key:82:Up:False",
+    ]), "HOLDMS sequence is incorrect.");
+}
+
+static void XmbcPressReleaseSpanMultipleKeys()
+{
+    using var stream = new MemoryStream(Encoding.UTF8.GetBytes("{PRESS}abc{WAITMS:100}{RELEASE}cba"));
+    var imported = new XmbcMacroTextImporter().ImportAsync(stream, "press-release.txt").GetAwaiter().GetResult();
+    var document = imported.Documents.Single();
+    Assert(document.Events.Count == 7, "PRESS/RELEASE should span three keys and one delay.");
+    Assert(!new MacroValidator().Validate(document).HasErrors, "Balanced multi-key PRESS/RELEASE should validate.");
+}
+
+static void XmbcExtendedTagsImport()
+{
+    const string text = "{F24}{MMB}{MB4}{MWUP}{NUM9}{VOL+}{MEDIAPLAY}{BACK}";
+    using var stream = new MemoryStream(Encoding.UTF8.GetBytes(text));
+    var imported = new XmbcMacroTextImporter().ImportAsync(stream, "extended.txt").GetAwaiter().GetResult();
+    var document = imported.Documents.Single();
+
+    Assert(imported.Diagnostics.Count == 0, "Confirmed extended tags should not produce diagnostics.");
+    Assert(document.Events.OfType<KeyMacroEvent>().Any(item => item.VirtualKey == 0x87), "F24 was not mapped.");
+    Assert(document.Events.OfType<MouseMacroEvent>().Any(item => item.Button == MouseButton.Middle), "MMB was not mapped.");
+    Assert(document.Events.OfType<MouseMacroEvent>().Any(item => item.Button == MouseButton.XButton1), "MB4 was not mapped.");
+    Assert(document.Events.OfType<MouseMacroEvent>().Any(item => item.Button == MouseButton.WheelUp), "MWUP was not mapped.");
+    Assert(!new MacroValidator().Validate(document).HasErrors, "Extended tag sequence should validate.");
+}
+
+static void XmbcModifierStatesExportRoundTrip()
+{
+    var original = CreateDocument(
+        new KeyMacroEvent(0, 0x11, InputTransition.Down, "CTRL"),
+        new KeyMacroEvent(1, 65, InputTransition.Down, "A"),
+        new KeyMacroEvent(2, 65, InputTransition.Up, "A"),
+        new KeyMacroEvent(3, 0x11, InputTransition.Up, "CTRL"));
+    using var output = new MemoryStream();
+    var diagnostics = new XmbcMacroTextExporter().ExportAsync(original, output).GetAwaiter().GetResult();
+    Assert(!diagnostics.Any(item => item.Severity == XMacroBridge.Core.Diagnostics.DiagnosticSeverity.Error), "Modifier export should succeed.");
+
+    output.Position = 0;
+    var imported = new XmbcMacroTextImporter().ImportAsync(output, "modifier-roundtrip.txt").GetAwaiter().GetResult();
+    Assert(EventSignatures(imported.Documents.Single()).SequenceEqual(EventSignatures(original)), "Modifier state round trip changed events.");
+}
+
+static void RazerXmlExportRejectsExtendedKey()
+{
+    var document = CreateDocument(
+        new KeyMacroEvent(0, 0x0D, InputTransition.Down, "NUMENTER", true),
+        new KeyMacroEvent(1, 0x0D, InputTransition.Up, "NUMENTER", true));
+    using var output = new MemoryStream();
+    var diagnostics = new RazerMacroXmlExporter().ExportAsync(document, output).GetAwaiter().GetResult();
+
+    Assert(diagnostics.Any(item => item.Code == "RAZER_EXPORT_EXTENDED_KEY_UNSUPPORTED"), "Extended key diagnostic is absent.");
+    Assert(output.Length == 0, "Failed extended-key export must not write output.");
+}
+
 static IEnumerable<string> EventSignatures(MacroDocument document) =>
     document.Events.OrderBy(item => item.Sequence).Select(item => item switch
     {
         DelayMacroEvent delay => $"delay:{delay.Milliseconds}",
-        KeyMacroEvent key => $"key:{key.VirtualKey}:{key.Transition}",
+        KeyMacroEvent key => $"key:{key.VirtualKey}:{key.Transition}:{key.IsExtended}",
         MouseMacroEvent mouse => $"mouse:{mouse.Button}:{mouse.Transition}",
         MacroReferenceEvent reference => $"reference:{reference.TargetGuid}:{reference.TargetIndex}",
         UnknownMacroEvent unknown => $"unknown:{unknown.SourceType}:{unknown.RawPayload}",

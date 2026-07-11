@@ -75,6 +75,10 @@ var tests = new (string Name, Action Run)[]
     ("Workspace delay scaling rejects overflow atomically", WorkspaceDelayScalingRejectsOverflowAtomically),
     ("Workspace edit history is bounded", WorkspaceEditHistoryIsBounded),
     ("Workspace editing isolates duplicate macro identifiers", WorkspaceEditingIsolatesDuplicateMacroIdentifiers),
+    ("Workspace inserts and deletes timeline events", WorkspaceInsertsAndDeletesTimelineEvents),
+    ("Workspace copied events revalidate safety", WorkspaceCopiedEventsRevalidateSafety),
+    ("Workspace moved events normalize order and revalidate", WorkspaceMovedEventsNormalizeOrderAndRevalidate),
+    ("Workspace structural editing respects event limit", WorkspaceStructuralEditingRespectsEventLimit),
 };
 
 var failures = new List<string>();
@@ -1303,6 +1307,144 @@ static void WorkspaceEditingIsolatesDuplicateMacroIdentifiers()
     Assert(ReferenceEquals(viewModel.Macros[1], second), "Undo did not restore the selected duplicate-ID snapshot.");
     Assert(viewModel.Redo(), "Redo should target the edited duplicate-ID macro.");
     Assert(viewModel.Macros[1].Events.OfType<DelayMacroEvent>().Single().Milliseconds == 9, "Redo did not restore the selected duplicate-ID edit.");
+}
+
+static void WorkspaceInsertsAndDeletesTimelineEvents()
+{
+    var original = CreateNamedDocument(
+        "结构编辑",
+        new KeyMacroEvent(10, 65, InputTransition.Down),
+        new KeyMacroEvent(20, 65, InputTransition.Up));
+    var viewModel = WorkspaceViewModel.CreateDefault();
+    viewModel.Macros.Add(original);
+    viewModel.SelectedMacro = original;
+    viewModel.SelectedEvent = viewModel.Events[0];
+    viewModel.NewDelayMillisecondsText = "15";
+
+    Assert(viewModel.InsertDelayAfterSelection(), "Delay insertion should succeed.");
+    Assert(original.Events.Count == 2 && original.Events[0].Sequence == 10, "Insertion mutated the imported document.");
+    Assert(viewModel.SelectedMacro!.Events.Count == 3, "Inserted delay did not increase the event count.");
+    Assert(
+        viewModel.SelectedMacro.Events.Select(item => item.Sequence).SequenceEqual([0L, 1L, 2L]),
+        "Structural editing did not normalize event sequences.");
+    Assert(viewModel.SelectedMacro.Events[1] is DelayMacroEvent { Milliseconds: 15 }, "Delay was not inserted after the selected event.");
+    Assert(viewModel.SelectedEvent is { DisplayIndex: 1, Event: DelayMacroEvent }, "Inserted delay was not selected.");
+    Assert(viewModel.CanExport, "A balanced macro with an inserted delay should remain exportable.");
+
+    Assert(viewModel.Undo(), "Inserted delay should be undoable.");
+    Assert(viewModel.SelectedMacro!.Events.Count == 2, "Undo did not remove the inserted delay.");
+    Assert(viewModel.SelectedEvent is { DisplayIndex: 0, Event: KeyMacroEvent }, "Undo did not restore the pre-insert selection.");
+    Assert(viewModel.Redo(), "Inserted delay should be redoable.");
+    Assert(viewModel.SelectedEvent?.Event is DelayMacroEvent, "Redo did not restore the inserted-event selection.");
+
+    Assert(viewModel.DeleteSelectedEvent(), "Deleting the inserted delay should succeed.");
+    Assert(viewModel.SelectedMacro!.Events.Count == 2, "Delete did not remove the selected event.");
+    Assert(viewModel.SelectedEvent is { DisplayIndex: 1, Event: KeyMacroEvent }, "Delete did not select the next event.");
+    Assert(viewModel.Undo(), "Deleted event should be undoable.");
+    Assert(viewModel.SelectedEvent?.Event is DelayMacroEvent, "Undo did not restore the deleted-event selection.");
+
+    var empty = CreateNamedDocument("空宏插入");
+    var emptyViewModel = WorkspaceViewModel.CreateDefault();
+    emptyViewModel.Macros.Add(empty);
+    emptyViewModel.SelectedMacro = empty;
+    emptyViewModel.NewDelayMillisecondsText = "8";
+    Assert(emptyViewModel.InsertDelayAfterSelection(), "Insertion without a selection should append to an empty macro.");
+    Assert(emptyViewModel.SelectedMacro!.Events.Single() is DelayMacroEvent { Sequence: 0, Milliseconds: 8 }, "Appended delay is incorrect.");
+    Assert(emptyViewModel.SelectedEvent is { DisplayIndex: 0 }, "Appended delay was not selected.");
+    Assert(emptyViewModel.DeleteSelectedEvent(), "Deleting the only event should succeed.");
+    Assert(emptyViewModel.SelectedMacro.Events.Count == 0 && emptyViewModel.SelectedEvent is null, "Deleting the only event should leave an empty selection.");
+}
+
+static void WorkspaceCopiedEventsRevalidateSafety()
+{
+    var original = CreateNamedDocument(
+        "复制验证",
+        new KeyMacroEvent(0, 65, InputTransition.Down),
+        new DelayMacroEvent(1, 10),
+        new KeyMacroEvent(2, 65, InputTransition.Up));
+    var viewModel = WorkspaceViewModel.CreateDefault();
+    viewModel.Macros.Add(original);
+    viewModel.SelectedMacro = original;
+    viewModel.SelectedEvent = viewModel.Events[0];
+
+    Assert(viewModel.CopySelectedEvent(), "Copying a selected event should succeed.");
+    Assert(viewModel.SelectedMacro!.Events.Count == 4, "Copy did not add an event.");
+    Assert(viewModel.SelectedEvent is { DisplayIndex: 1, Event: KeyMacroEvent }, "The copied event was not selected.");
+    Assert(!viewModel.CanExport, "Duplicating a key-down event should immediately block export.");
+    Assert(viewModel.Diagnostics.Any(item => item.Code == "KEY_DUPLICATE_DOWN"), "Copy did not produce the expected safety diagnostic.");
+
+    Assert(viewModel.Undo(), "Copied event should be undoable.");
+    Assert(viewModel.CanExport, "Undo should immediately restore a valid macro.");
+    Assert(!viewModel.Diagnostics.Any(item => item.Code == "KEY_DUPLICATE_DOWN"), "Undo left a stale duplicate-key diagnostic.");
+    Assert(viewModel.Redo(), "Copied event should be redoable.");
+    Assert(!viewModel.CanExport, "Redo should restore the copied-event safety error.");
+    Assert(viewModel.DeleteSelectedEvent(), "Deleting the copied event should succeed.");
+    Assert(viewModel.CanExport, "Deleting the copied key-down event should restore validity.");
+}
+
+static void WorkspaceMovedEventsNormalizeOrderAndRevalidate()
+{
+    var original = CreateNamedDocument(
+        "移动验证",
+        new DelayMacroEvent(5, 10),
+        new KeyMacroEvent(10, 65, InputTransition.Down),
+        new KeyMacroEvent(20, 65, InputTransition.Up));
+    var viewModel = WorkspaceViewModel.CreateDefault();
+    viewModel.Macros.Add(original);
+    viewModel.SelectedMacro = original;
+    viewModel.SelectedEvent = viewModel.Events[2];
+
+    Assert(viewModel.CanMoveEventUp && !viewModel.CanMoveEventDown, "Boundary move state is incorrect.");
+    Assert(viewModel.MoveSelectedEventUp(), "Moving the key-up event upward should succeed.");
+    Assert(
+        viewModel.SelectedMacro!.Events.Select(item => item.Sequence).SequenceEqual([0L, 1L, 2L]),
+        "Move did not normalize event sequences.");
+    Assert(viewModel.SelectedEvent is { DisplayIndex: 1, Event: KeyMacroEvent { Transition: InputTransition.Up } }, "Moved event selection was not preserved.");
+    Assert(!viewModel.CanExport, "Moving key-up before key-down should block export.");
+    Assert(viewModel.Diagnostics.Any(item => item.Code == "KEY_UP_WITHOUT_DOWN"), "Move did not produce a key-order diagnostic.");
+
+    Assert(viewModel.Undo(), "Moved event should be undoable.");
+    Assert(viewModel.CanExport, "Undo should restore the valid key order.");
+    Assert(viewModel.SelectedEvent is { DisplayIndex: 2, Event: KeyMacroEvent { Transition: InputTransition.Up } }, "Undo did not restore the pre-move selection.");
+    Assert(!viewModel.MoveSelectedEventDown(), "Moving the last event downward must be rejected.");
+    Assert(!viewModel.CanUndo, "Rejected boundary movement must not create history.");
+
+    var identical = CreateNamedDocument(
+        "相同事件移动",
+        new DelayMacroEvent(0, 5),
+        new DelayMacroEvent(1, 5));
+    var identicalViewModel = WorkspaceViewModel.CreateDefault();
+    identicalViewModel.Macros.Add(identical);
+    identicalViewModel.SelectedMacro = identical;
+    identicalViewModel.SelectedEvent = identicalViewModel.Events[1];
+    Assert(!identicalViewModel.MoveSelectedEventUp(), "Swapping equal adjacent events should be treated as a no-op.");
+    Assert(!identicalViewModel.CanUndo, "A semantic no-op must not create history.");
+    Assert(identicalViewModel.StatusText == "编辑没有产生可见变化", "A semantic no-op should provide a visible status message.");
+}
+
+static void WorkspaceStructuralEditingRespectsEventLimit()
+{
+    var limits = new MacroLimits(MaximumEventsPerMacro: 2);
+    var original = CreateNamedDocument(
+        "编辑上限",
+        new DelayMacroEvent(0, 1),
+        new DelayMacroEvent(1, 2));
+    var viewModel = WorkspaceViewModel.CreateDefault(limits);
+    viewModel.Macros.Add(original);
+    viewModel.SelectedMacro = original;
+    viewModel.SelectedEvent = viewModel.Events[0];
+
+    Assert(!viewModel.CanInsertDelay && !viewModel.CanCopyEvent, "Insert and copy should disable at the event limit.");
+    Assert(!viewModel.InsertDelayAfterSelection(), "Insert must be rejected at the event limit.");
+    Assert(!viewModel.CopySelectedEvent(), "Copy must be rejected at the event limit.");
+    Assert(ReferenceEquals(viewModel.SelectedMacro, original), "Rejected limit operations changed the macro snapshot.");
+    Assert(!viewModel.CanUndo, "Rejected limit operations created history entries.");
+
+    Assert(viewModel.DeleteSelectedEvent(), "Delete should remain available at the event limit.");
+    Assert(viewModel.CanInsertDelay && viewModel.CanCopyEvent, "Removing an event should reopen insert and copy capacity.");
+    viewModel.NewDelayMillisecondsText = "3";
+    Assert(viewModel.InsertDelayAfterSelection(), "Insert should succeed after capacity is available.");
+    Assert(viewModel.SelectedMacro!.Events.Count == 2, "Insert after delete did not restore the configured event count.");
 }
 
 static string CreateFixtureDirectory()

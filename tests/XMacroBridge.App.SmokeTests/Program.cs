@@ -96,6 +96,12 @@ internal static class Program
             var scaleDelays = Find<Button>(window, "ScaleDelaysButton");
             var undo = Find<Button>(window, "UndoButton");
             var redo = Find<Button>(window, "RedoButton");
+            var newDelayMilliseconds = Find<TextBox>(window, "NewDelayMillisecondsTextBox");
+            var insertDelay = Find<Button>(window, "InsertDelayButton");
+            var copyEvent = Find<Button>(window, "CopyEventButton");
+            var deleteEvent = Find<Button>(window, "DeleteEventButton");
+            var moveEventUp = Find<Button>(window, "MoveEventUpButton");
+            var moveEventDown = Find<Button>(window, "MoveEventDownButton");
 
             viewModel.SelectedEvent = viewModel.Events.FirstOrDefault(item => item.IsFixedDelay)
                 ?? throw new InvalidOperationException("The selected smoke-test macro has no fixed delay to edit.");
@@ -113,6 +119,9 @@ internal static class Program
             Assert(applyDelay.IsEnabled, "Selected fixed delay should enable the apply action.");
             Assert(scaleDelays.IsEnabled, "A macro with delays should enable batch scaling.");
             Assert(!undo.IsEnabled && !redo.IsEnabled, "A new workspace should have empty edit history.");
+            Assert(insertDelay.IsEnabled, "A macro below the event limit should allow delay insertion.");
+            Assert(copyEvent.IsEnabled && deleteEvent.IsEnabled, "Selected event should enable copy and delete.");
+            Assert(moveEventUp.IsEnabled || moveEventDown.IsEnabled, "A selected event in a multi-event macro should allow movement.");
             VerifyAccessibilityNames(
                 macroList,
                 eventTimeline,
@@ -132,7 +141,13 @@ internal static class Program
                 delayScalePercent,
                 scaleDelays,
                 undo,
-                redo);
+                redo,
+                newDelayMilliseconds,
+                insertDelay,
+                copyEvent,
+                deleteEvent,
+                moveEventUp,
+                moveEventDown);
             VerifyDpiAwareness(window);
             VerifyCompactLayout(workspaceScroll);
             VerifyKeyboardContract(
@@ -142,6 +157,12 @@ internal static class Program
                 targetFormat,
                 exportButton,
                 eventTimeline,
+                newDelayMilliseconds,
+                insertDelay,
+                copyEvent,
+                deleteEvent,
+                moveEventUp,
+                moveEventDown,
                 delayMilliseconds,
                 applyDelay,
                 delayScalePercent,
@@ -152,7 +173,19 @@ internal static class Program
                 scopeFilter,
                 diagnosticScroll,
                 cancelButton);
-            VerifyEditingBindings(viewModel, window, eventTimeline, delayMilliseconds, undo, redo);
+            VerifyEditingBindings(
+                viewModel,
+                window,
+                eventTimeline,
+                delayMilliseconds,
+                newDelayMilliseconds,
+                insertDelay,
+                copyEvent,
+                deleteEvent,
+                moveEventUp,
+                moveEventDown,
+                undo,
+                redo);
             VerifyGeneratedAccessibility(viewModel, macroList, eventTimeline, diagnosticGroups, statusText);
             VerifyTimelineVirtualization(viewModel, eventTimeline);
             VerifyTheme(application, expectedTheme);
@@ -249,6 +282,12 @@ internal static class Program
         Window window,
         DataGrid eventTimeline,
         TextBox delayMilliseconds,
+        TextBox newDelayMilliseconds,
+        Button insertDelay,
+        Button copyEvent,
+        Button deleteEvent,
+        Button moveEventUp,
+        Button moveEventDown,
         Button undo,
         Button redo)
     {
@@ -273,6 +312,38 @@ internal static class Program
         Assert(
             viewModel.SelectedMacro!.Events.OfType<DelayMacroEvent>().Any(item => item.Milliseconds == originalDelay),
             "Undo did not restore the original delay in the WPF workspace.");
+
+        var originalEventCount = viewModel.SelectedMacro.Events.Count;
+        newDelayMilliseconds.Text = "7";
+        insertDelay.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        window.UpdateLayout();
+        Assert(viewModel.SelectedMacro.Events.Count == originalEventCount + 1, "Insert button did not add a delay event.");
+        Assert(viewModel.SelectedEvent?.Event is DelayMacroEvent { Milliseconds: 7 }, "Insert button did not select the new delay.");
+        Assert(copyEvent.IsEnabled && deleteEvent.IsEnabled, "Inserted event did not enable copy and delete actions.");
+
+        copyEvent.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        window.UpdateLayout();
+        Assert(viewModel.SelectedMacro.Events.Count == originalEventCount + 2, "Copy button did not duplicate the selected event.");
+        var copiedDisplayIndex = viewModel.SelectedEvent?.DisplayIndex
+            ?? throw new InvalidOperationException("Copied event selection is missing.");
+        if (moveEventDown.IsEnabled)
+        {
+            moveEventDown.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            window.UpdateLayout();
+            Assert(viewModel.SelectedEvent?.DisplayIndex == copiedDisplayIndex + 1, "Move-down button did not move the selected event.");
+        }
+
+        if (moveEventUp.IsEnabled)
+        {
+            var beforeMoveUp = viewModel.SelectedEvent!.DisplayIndex;
+            moveEventUp.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            window.UpdateLayout();
+            Assert(viewModel.SelectedEvent?.DisplayIndex == beforeMoveUp - 1, "Move-up button did not move the selected event.");
+        }
+
+        deleteEvent.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        window.UpdateLayout();
+        Assert(viewModel.SelectedMacro.Events.Count == originalEventCount + 1, "Delete button did not remove the selected event.");
     }
 
     private static void VerifyFocusRing(Button button, string expectedBrushKey)

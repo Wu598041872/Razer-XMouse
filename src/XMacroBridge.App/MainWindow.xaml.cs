@@ -85,6 +85,16 @@ public partial class MainWindow : Window
 
     private void ScaleDelays_Click(object sender, RoutedEventArgs e) => viewModel.ScaleAllDelays();
 
+    private void InsertDelay_Click(object sender, RoutedEventArgs e) => viewModel.InsertDelayAfterSelection();
+
+    private void CopyEvent_Click(object sender, RoutedEventArgs e) => viewModel.CopySelectedEvent();
+
+    private void DeleteEvent_Click(object sender, RoutedEventArgs e) => viewModel.DeleteSelectedEvent();
+
+    private void MoveEventUp_Click(object sender, RoutedEventArgs e) => viewModel.MoveSelectedEventUp();
+
+    private void MoveEventDown_Click(object sender, RoutedEventArgs e) => viewModel.MoveSelectedEventDown();
+
     private void Undo_Click(object sender, RoutedEventArgs e) => viewModel.Undo();
 
     private void Redo_Click(object sender, RoutedEventArgs e) => viewModel.Redo();

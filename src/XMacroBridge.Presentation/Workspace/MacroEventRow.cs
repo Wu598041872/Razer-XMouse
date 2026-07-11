@@ -3,6 +3,7 @@ using XMacroBridge.Core.Models;
 namespace XMacroBridge.Presentation.Workspace;
 
 public sealed record MacroEventRow(
+    int DisplayIndex,
     int EventIndex,
     MacroEvent Event,
     string Type,

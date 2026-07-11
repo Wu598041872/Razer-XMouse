@@ -18,6 +18,7 @@ public sealed class WorkspaceViewModel : ObservableObject
     private readonly SafeExportService exportService;
     private readonly INestedMacroResolver resolver;
     private readonly IMacroValidator validator;
+    private readonly MacroLimits limits;
     private readonly List<MacroEditHistoryEntry> undoHistory = [];
     private readonly List<MacroEditHistoryEntry> redoHistory = [];
     private readonly Dictionary<MacroDocument, List<ConversionDiagnostic>> evaluationDiagnostics =
@@ -34,17 +35,24 @@ public sealed class WorkspaceViewModel : ObservableObject
     private DiagnosticScopeOption selectedDiagnosticScope;
     private string delayMillisecondsText = string.Empty;
     private string delayScalePercentText = "100";
+    private string newDelayMillisecondsText = "10";
 
     public WorkspaceViewModel(
         MacroImportService importService,
         SafeExportService exportService,
         INestedMacroResolver resolver,
-        IMacroValidator validator)
+        IMacroValidator validator,
+        MacroLimits? limits = null)
     {
         this.importService = importService ?? throw new ArgumentNullException(nameof(importService));
         this.exportService = exportService ?? throw new ArgumentNullException(nameof(exportService));
         this.resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
         this.validator = validator ?? throw new ArgumentNullException(nameof(validator));
+        this.limits = limits ?? new MacroLimits();
+        if (this.limits.MaximumEventsPerMacro < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(limits), "事件数量上限必须至少为 1。");
+        }
         ExportFormats =
         [
             new ExportFormatOption("razer.macro.xml", "雷云 4 宏 XML", ".xml"),
@@ -104,7 +112,7 @@ public sealed class WorkspaceViewModel : ObservableObject
                 DelayMillisecondsText = value?.Event is DelayMacroEvent delay
                     ? delay.Milliseconds.ToString(CultureInfo.InvariantCulture)
                     : string.Empty;
-                OnPropertyChanged(nameof(CanUpdateSelectedDelay));
+                NotifyEditingState();
             }
         }
     }
@@ -119,6 +127,12 @@ public sealed class WorkspaceViewModel : ObservableObject
     {
         get => delayScalePercentText;
         set => SetProperty(ref delayScalePercentText, value ?? string.Empty);
+    }
+
+    public string NewDelayMillisecondsText
+    {
+        get => newDelayMillisecondsText;
+        set => SetProperty(ref newDelayMillisecondsText, value ?? string.Empty);
     }
 
     public string TargetFormatId
@@ -187,6 +201,19 @@ public sealed class WorkspaceViewModel : ObservableObject
     public bool CanUpdateSelectedDelay =>
         !IsBusy && SelectedMacro is not null && SelectedEvent?.Event is DelayMacroEvent;
 
+    public bool CanInsertDelay =>
+        !IsBusy && SelectedMacro is not null && SelectedMacro.Events.Count < limits.MaximumEventsPerMacro;
+
+    public bool CanDeleteEvent => !IsBusy && SelectedMacro is not null && SelectedEvent is not null;
+
+    public bool CanCopyEvent =>
+        CanDeleteEvent && SelectedMacro!.Events.Count < limits.MaximumEventsPerMacro;
+
+    public bool CanMoveEventUp => CanDeleteEvent && SelectedEvent!.DisplayIndex > 0;
+
+    public bool CanMoveEventDown =>
+        CanDeleteEvent && SelectedEvent!.DisplayIndex < Events.Count - 1;
+
     public bool CanScaleDelays =>
         !IsBusy && SelectedMacro?.Events.Any(item => item is DelayMacroEvent or RandomDelayMacroEvent) == true;
 
@@ -236,14 +263,15 @@ public sealed class WorkspaceViewModel : ObservableObject
                 ? "该宏包含阻断错误，请查看兼容性报告"
                 : "已通过基础安全检查，可以导出";
 
-    public static WorkspaceViewModel CreateDefault()
+    public static WorkspaceViewModel CreateDefault(MacroLimits? limits = null)
     {
         var registry = MacroFormatRegistry.CreateDefault();
         return new WorkspaceViewModel(
             new MacroImportService(registry),
             new SafeExportService(registry),
             new NestedMacroResolver(),
-            new MacroValidator());
+            new MacroValidator(),
+            limits);
     }
 
     public async Task ImportAsync(IEnumerable<string> paths)
@@ -342,7 +370,7 @@ public sealed class WorkspaceViewModel : ObservableObject
             var document = SelectedMacro;
             if (document.Events.OfType<MacroReferenceEvent>().Any())
             {
-                var resolution = resolver.Resolve(document, Macros);
+                var resolution = resolver.Resolve(document, Macros, limits);
                 AppendDiagnostics(WithMacroContext(resolution.Diagnostics, document.Name));
                 if (resolution.Document is null)
                 {
@@ -353,7 +381,7 @@ public sealed class WorkspaceViewModel : ObservableObject
                 document = resolution.Document;
             }
 
-            var validation = validator.Validate(document);
+            var validation = validator.Validate(document, limits);
             AppendDiagnostics(WithMacroContext(validation.Diagnostics, document.Name));
             if (validation.HasErrors)
             {
@@ -430,6 +458,7 @@ public sealed class WorkspaceViewModel : ObservableObject
         return ApplyMacroEdit(
             SelectedMacro,
             events,
+            SelectedEvent.EventIndex,
             SelectedEvent.EventIndex,
             $"事件 {delay.Sequence} 延时改为 {milliseconds} ms");
     }
@@ -525,7 +554,147 @@ public sealed class WorkspaceViewModel : ObservableObject
             SelectedMacro,
             events,
             SelectedEvent?.EventIndex,
+            SelectedEvent?.EventIndex,
             $"全部延时缩放为 {percentage.ToString(CultureInfo.InvariantCulture)}%");
+    }
+
+    public bool InsertDelayAfterSelection()
+    {
+        if (IsBusy)
+        {
+            StatusText = "操作进行中，暂时不能插入事件";
+            return false;
+        }
+
+        if (SelectedMacro is null)
+        {
+            StatusText = "请先选择要编辑的宏";
+            return false;
+        }
+
+        if (SelectedMacro.Events.Count >= limits.MaximumEventsPerMacro)
+        {
+            StatusText = $"事件数量已达到上限 {limits.MaximumEventsPerMacro}，不能继续插入";
+            return false;
+        }
+
+        if (!long.TryParse(
+                NewDelayMillisecondsText,
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out var milliseconds) || milliseconds < 0)
+        {
+            StatusText = "新延时必须是大于或等于 0 的整数毫秒";
+            return false;
+        }
+
+        var beforeSelection = SelectedEvent?.EventIndex;
+        var result = TimelineEditOperations.InsertDelayAfterSelection(
+            SelectedMacro.Events,
+            beforeSelection,
+            milliseconds);
+        return ApplyMacroEdit(
+            SelectedMacro,
+            result.Events,
+            beforeSelection,
+            result.SelectedEventIndex,
+            $"插入 {milliseconds} ms 固定延时");
+    }
+
+    public bool CopySelectedEvent()
+    {
+        if (!CanCopyEvent)
+        {
+            StatusText = IsBusy
+                ? "操作进行中，暂时不能复制事件"
+                : SelectedMacro is null || SelectedEvent is null
+                    ? "请先选择要复制的事件"
+                    : $"事件数量已达到上限 {limits.MaximumEventsPerMacro}，不能继续复制";
+            return false;
+        }
+
+        var beforeSelection = SelectedEvent!.EventIndex;
+        var result = TimelineEditOperations.CopySelectedAfter(
+            SelectedMacro!.Events,
+            beforeSelection);
+        if (result is null)
+        {
+            StatusText = "选中的事件已不在当前宏中";
+            return false;
+        }
+
+        return ApplyMacroEdit(
+            SelectedMacro,
+            result.Events,
+            beforeSelection,
+            result.SelectedEventIndex,
+            $"复制{SelectedEvent.Type}事件");
+    }
+
+    public bool DeleteSelectedEvent()
+    {
+        if (!CanDeleteEvent)
+        {
+            StatusText = IsBusy ? "操作进行中，暂时不能删除事件" : "请先选择要删除的事件";
+            return false;
+        }
+
+        var beforeSelection = SelectedEvent!.EventIndex;
+        var selectedType = SelectedEvent.Type;
+        var result = TimelineEditOperations.DeleteSelected(
+            SelectedMacro!.Events,
+            beforeSelection);
+        if (result is null)
+        {
+            StatusText = "选中的事件已不在当前宏中";
+            return false;
+        }
+
+        return ApplyMacroEdit(
+            SelectedMacro,
+            result.Events,
+            beforeSelection,
+            result.SelectedEventIndex,
+            $"删除{selectedType}事件");
+    }
+
+    public bool MoveSelectedEventUp() => MoveSelectedEvent(-1);
+
+    public bool MoveSelectedEventDown() => MoveSelectedEvent(1);
+
+    private bool MoveSelectedEvent(int offset)
+    {
+        var canMove = offset < 0 ? CanMoveEventUp : CanMoveEventDown;
+        if (!canMove)
+        {
+            StatusText = IsBusy
+                ? "操作进行中，暂时不能移动事件"
+                : SelectedEvent is null
+                    ? "请先选择要移动的事件"
+                    : offset < 0
+                        ? "选中的事件已经位于最上方"
+                        : "选中的事件已经位于最下方";
+            return false;
+        }
+
+        var beforeSelection = SelectedEvent!.EventIndex;
+        var selectedType = SelectedEvent.Type;
+        var result = TimelineEditOperations.MoveSelected(
+            SelectedMacro!.Events,
+            beforeSelection,
+            offset);
+        if (result is null)
+        {
+            StatusText = "无法移动选中的事件";
+            return false;
+        }
+
+        return ApplyMacroEdit(
+            SelectedMacro,
+            result.Events,
+            beforeSelection,
+            result.SelectedEventIndex,
+            offset < 0 ? $"上移{selectedType}事件" : $"下移{selectedType}事件");
     }
 
     public bool Undo()
@@ -537,7 +706,7 @@ public sealed class WorkspaceViewModel : ObservableObject
         }
 
         var entry = undoHistory[^1];
-        if (!ReplaceMacro(entry.Before, entry.SelectedEventIndex, entry.After))
+        if (!ReplaceMacro(entry.Before, entry.BeforeSelectedEventIndex, entry.After))
         {
             ClearEditHistory();
             StatusText = "撤销目标已不在工作区，编辑历史已清空";
@@ -560,7 +729,7 @@ public sealed class WorkspaceViewModel : ObservableObject
         }
 
         var entry = redoHistory[^1];
-        if (!ReplaceMacro(entry.After, entry.SelectedEventIndex, entry.Before))
+        if (!ReplaceMacro(entry.After, entry.AfterSelectedEventIndex, entry.Before))
         {
             ClearEditHistory();
             StatusText = "重做目标已不在工作区，编辑历史已清空";
@@ -580,12 +749,15 @@ public sealed class WorkspaceViewModel : ObservableObject
         Events.Clear();
         if (SelectedMacro is not null)
         {
-            foreach (var item in SelectedMacro.Events
-                         .Select((macroEvent, index) => (MacroEvent: macroEvent, Index: index))
-                         .OrderBy(item => item.MacroEvent.Sequence)
-                         .ThenBy(item => item.Index))
+            var orderedEvents = SelectedMacro.Events
+                .Select((macroEvent, index) => (MacroEvent: macroEvent, Index: index))
+                .OrderBy(item => item.MacroEvent.Sequence)
+                .ThenBy(item => item.Index)
+                .ToArray();
+            for (var displayIndex = 0; displayIndex < orderedEvents.Length; displayIndex++)
             {
-                Events.Add(CreateEventRow(item.Index, item.MacroEvent));
+                var item = orderedEvents[displayIndex];
+                Events.Add(CreateEventRow(displayIndex, item.Index, item.MacroEvent));
             }
         }
 
@@ -606,7 +778,7 @@ public sealed class WorkspaceViewModel : ObservableObject
         var diagnostics = new List<ConversionDiagnostic>();
         if (document.Events.OfType<MacroReferenceEvent>().Any())
         {
-            var resolution = resolver.Resolve(document, Macros);
+            var resolution = resolver.Resolve(document, Macros, limits);
             diagnostics.AddRange(WithMacroContext(resolution.Diagnostics, currentMacroName));
             if (resolution.Document is null || resolution.Diagnostics.Any(item => item.Severity == DiagnosticSeverity.Error))
             {
@@ -618,7 +790,7 @@ public sealed class WorkspaceViewModel : ObservableObject
             document = resolution.Document;
         }
 
-        var validation = validator.Validate(document);
+        var validation = validator.Validate(document, limits);
         diagnostics.AddRange(WithMacroContext(validation.Diagnostics, currentMacroName));
         selectedMacroHasBlockingErrors = validation.HasErrors;
         ReplaceEvaluationDiagnostics(currentMacro, diagnostics);
@@ -631,32 +803,42 @@ public sealed class WorkspaceViewModel : ObservableObject
             ? item with { SourceContext = macroName }
             : item);
 
-    private static MacroEventRow CreateEventRow(int eventIndex, MacroEvent macroEvent) => macroEvent switch
+    private static MacroEventRow CreateEventRow(
+        int displayIndex,
+        int eventIndex,
+        MacroEvent macroEvent) => macroEvent switch
     {
-        DelayMacroEvent delay => new(eventIndex, delay, "延时", $"{delay.Milliseconds} ms"),
-        RandomDelayMacroEvent delay => new(eventIndex, delay, "随机延时", $"{delay.MinimumMilliseconds}–{delay.MaximumMilliseconds} ms"),
-        KeyMacroEvent key => new(eventIndex, key, "键盘", $"{key.Transition} · VK {key.VirtualKey}{(key.IsExtended ? " · 扩展" : string.Empty)}"),
-        MouseMacroEvent mouse => new(eventIndex, mouse, "鼠标", $"{mouse.Transition} · {mouse.Button}"),
-        ScanCodeMacroEvent scan => new(eventIndex, scan, "扫描码", $"{scan.Transition} · {scan.ScanCode}{(scan.IsExtended ? " · 扩展" : string.Empty)}"),
-        XmbcCommandMacroEvent command => new(eventIndex, command, "XMBC 命令", $"{command.Category} · {command.RawTag}"),
-        MacroReferenceEvent reference => new(eventIndex, reference, "嵌套宏", reference.TargetName ?? reference.TargetGuid?.ToString() ?? $"索引 {reference.TargetIndex}"),
-        UnknownMacroEvent unknown => new(eventIndex, unknown, "未知", $"{unknown.SourceType} · {unknown.RawPayload}"),
-        _ => new(eventIndex, macroEvent, "其他", string.Empty),
+        DelayMacroEvent delay => new(displayIndex, eventIndex, delay, "延时", $"{delay.Milliseconds} ms"),
+        RandomDelayMacroEvent delay => new(displayIndex, eventIndex, delay, "随机延时", $"{delay.MinimumMilliseconds}–{delay.MaximumMilliseconds} ms"),
+        KeyMacroEvent key => new(displayIndex, eventIndex, key, "键盘", $"{key.Transition} · VK {key.VirtualKey}{(key.IsExtended ? " · 扩展" : string.Empty)}"),
+        MouseMacroEvent mouse => new(displayIndex, eventIndex, mouse, "鼠标", $"{mouse.Transition} · {mouse.Button}"),
+        ScanCodeMacroEvent scan => new(displayIndex, eventIndex, scan, "扫描码", $"{scan.Transition} · {scan.ScanCode}{(scan.IsExtended ? " · 扩展" : string.Empty)}"),
+        XmbcCommandMacroEvent command => new(displayIndex, eventIndex, command, "XMBC 命令", $"{command.Category} · {command.RawTag}"),
+        MacroReferenceEvent reference => new(displayIndex, eventIndex, reference, "嵌套宏", reference.TargetName ?? reference.TargetGuid?.ToString() ?? $"索引 {reference.TargetIndex}"),
+        UnknownMacroEvent unknown => new(displayIndex, eventIndex, unknown, "未知", $"{unknown.SourceType} · {unknown.RawPayload}"),
+        _ => new(displayIndex, eventIndex, macroEvent, "其他", string.Empty),
     };
 
     private bool ApplyMacroEdit(
         MacroDocument before,
         MacroEvent[] events,
-        int? selectedEventIndex,
+        int? beforeSelectedEventIndex,
+        int? afterSelectedEventIndex,
         string description)
     {
         if (before.Events.SequenceEqual(events))
         {
+            StatusText = "编辑没有产生可见变化";
             return false;
         }
 
         var after = before with { Events = Array.AsReadOnly(events) };
-        var entry = new MacroEditHistoryEntry(before, after, selectedEventIndex, description);
+        var entry = new MacroEditHistoryEntry(
+            before,
+            after,
+            beforeSelectedEventIndex,
+            afterSelectedEventIndex,
+            description);
         undoHistory.Add(entry);
         if (undoHistory.Count > MaximumEditHistoryEntries)
         {
@@ -664,7 +846,7 @@ public sealed class WorkspaceViewModel : ObservableObject
         }
 
         redoHistory.Clear();
-        if (!ReplaceMacro(after, selectedEventIndex, before))
+        if (!ReplaceMacro(after, afterSelectedEventIndex, before))
         {
             undoHistory.RemoveAt(undoHistory.Count - 1);
             StatusText = "编辑目标已不在工作区，未应用更改";
@@ -791,6 +973,11 @@ public sealed class WorkspaceViewModel : ObservableObject
     private void NotifyEditingState()
     {
         OnPropertyChanged(nameof(CanUpdateSelectedDelay));
+        OnPropertyChanged(nameof(CanInsertDelay));
+        OnPropertyChanged(nameof(CanDeleteEvent));
+        OnPropertyChanged(nameof(CanCopyEvent));
+        OnPropertyChanged(nameof(CanMoveEventUp));
+        OnPropertyChanged(nameof(CanMoveEventDown));
         OnPropertyChanged(nameof(CanScaleDelays));
         OnPropertyChanged(nameof(CanUndo));
         OnPropertyChanged(nameof(CanRedo));
@@ -878,6 +1065,7 @@ public sealed class WorkspaceViewModel : ObservableObject
     private sealed record MacroEditHistoryEntry(
         MacroDocument Before,
         MacroDocument After,
-        int? SelectedEventIndex,
+        int? BeforeSelectedEventIndex,
+        int? AfterSelectedEventIndex,
         string Description);
 }

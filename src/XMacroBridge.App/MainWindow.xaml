@@ -265,6 +265,8 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="8" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="6" />
+                            <RowDefinition Height="Auto" />
                             <RowDefinition Height="10" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
@@ -277,10 +279,77 @@
                             <TextBlock Grid.Column="1"
                                         VerticalAlignment="Center"
                                         Style="{StaticResource CaptionStyle}"
-                                        Text="选择固定延时后可修改 · 所有编辑均可撤销" />
+                                        Text="插入、复制、删除、移动和延时编辑均可撤销" />
                         </Grid>
 
                         <WrapPanel Grid.Row="2" VerticalAlignment="Center">
+                            <TextBlock Margin="0,0,6,0"
+                                       VerticalAlignment="Center"
+                                       Style="{StaticResource CaptionStyle}"
+                                       Text="插入延时" />
+                            <TextBox x:Name="NewDelayMillisecondsTextBox"
+                                     AutomationProperties.Name="新插入延时毫秒"
+                                     AutomationProperties.HelpText="在选中事件之后插入固定延时；未选择事件时追加到末尾"
+                                     TabIndex="6"
+                                     Width="68"
+                                     Height="32"
+                                     Padding="8,5"
+                                     VerticalContentAlignment="Center"
+                                     Background="{DynamicResource SurfaceSecondaryBrush}"
+                                     BorderBrush="{DynamicResource DividerBrush}"
+                                     BorderThickness="1"
+                                     Text="{Binding NewDelayMillisecondsText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBlock Margin="4,0,6,0"
+                                       VerticalAlignment="Center"
+                                       Style="{StaticResource CaptionStyle}"
+                                       Text="ms" />
+                            <Button x:Name="InsertDelayButton"
+                                    AutomationProperties.Name="在选中事件之后插入固定延时"
+                                    TabIndex="7"
+                                    Margin="0,0,14,0"
+                                    MinWidth="58"
+                                    Click="InsertDelay_Click"
+                                    Content="插入"
+                                    IsEnabled="{Binding CanInsertDelay}"
+                                    Style="{StaticResource SecondaryButtonStyle}" />
+                            <Button x:Name="CopyEventButton"
+                                    AutomationProperties.Name="复制选中的时间线事件"
+                                    TabIndex="8"
+                                    Margin="0,0,6,0"
+                                    MinWidth="58"
+                                    Click="CopyEvent_Click"
+                                    Content="复制"
+                                    IsEnabled="{Binding CanCopyEvent}"
+                                    Style="{StaticResource SecondaryButtonStyle}" />
+                            <Button x:Name="DeleteEventButton"
+                                    AutomationProperties.Name="删除选中的时间线事件"
+                                    TabIndex="9"
+                                    Margin="0,0,14,0"
+                                    MinWidth="58"
+                                    Click="DeleteEvent_Click"
+                                    Content="删除"
+                                    IsEnabled="{Binding CanDeleteEvent}"
+                                    Style="{StaticResource SecondaryButtonStyle}" />
+                            <Button x:Name="MoveEventUpButton"
+                                    AutomationProperties.Name="向上移动选中的时间线事件"
+                                    TabIndex="10"
+                                    Margin="0,0,6,0"
+                                    MinWidth="58"
+                                    Click="MoveEventUp_Click"
+                                    Content="上移"
+                                    IsEnabled="{Binding CanMoveEventUp}"
+                                    Style="{StaticResource SecondaryButtonStyle}" />
+                            <Button x:Name="MoveEventDownButton"
+                                    AutomationProperties.Name="向下移动选中的时间线事件"
+                                    TabIndex="11"
+                                    MinWidth="58"
+                                    Click="MoveEventDown_Click"
+                                    Content="下移"
+                                    IsEnabled="{Binding CanMoveEventDown}"
+                                    Style="{StaticResource SecondaryButtonStyle}" />
+                        </WrapPanel>
+
+                        <WrapPanel Grid.Row="4" VerticalAlignment="Center">
                             <TextBlock Margin="0,0,6,0"
                                        VerticalAlignment="Center"
                                        Style="{StaticResource CaptionStyle}"
@@ -288,7 +357,7 @@
                             <TextBox x:Name="DelayMillisecondsTextBox"
                                      AutomationProperties.Name="选中事件延时毫秒"
                                      AutomationProperties.HelpText="输入大于或等于零的整数毫秒"
-                                     TabIndex="6"
+                                     TabIndex="12"
                                      Width="82"
                                      Height="32"
                                      Padding="8,5"
@@ -299,7 +368,7 @@
                                      Text="{Binding DelayMillisecondsText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                             <Button x:Name="ApplyDelayButton"
                                     AutomationProperties.Name="应用选中事件延时"
-                                    TabIndex="7"
+                                    TabIndex="13"
                                     Margin="6,0,14,0"
                                     MinWidth="58"
                                     Click="ApplyDelay_Click"
@@ -314,7 +383,7 @@
                             <TextBox x:Name="DelayScalePercentTextBox"
                                      AutomationProperties.Name="全部延时缩放百分比"
                                      AutomationProperties.HelpText="同时缩放固定延时和随机延时，例如输入 125"
-                                     TabIndex="8"
+                                     TabIndex="14"
                                      Width="68"
                                      Height="32"
                                      Padding="8,5"
@@ -329,7 +398,7 @@
                                        Text="%" />
                             <Button x:Name="ScaleDelaysButton"
                                     AutomationProperties.Name="批量缩放全部延时"
-                                    TabIndex="9"
+                                    TabIndex="15"
                                     Margin="0,0,14,0"
                                     MinWidth="58"
                                     Click="ScaleDelays_Click"
@@ -338,7 +407,7 @@
                                     Style="{StaticResource SecondaryButtonStyle}" />
                             <Button x:Name="UndoButton"
                                     AutomationProperties.Name="撤销时间线编辑"
-                                    TabIndex="10"
+                                    TabIndex="16"
                                     Margin="0,0,6,0"
                                     MinWidth="58"
                                     Click="Undo_Click"
@@ -348,7 +417,7 @@
                                     ToolTip="{Binding UndoAvailabilityText}" />
                             <Button x:Name="RedoButton"
                                     AutomationProperties.Name="重做时间线编辑"
-                                    TabIndex="11"
+                                    TabIndex="17"
                                     MinWidth="58"
                                     Click="Redo_Click"
                                     Content="重做"
@@ -358,7 +427,7 @@
                         </WrapPanel>
 
                         <DataGrid x:Name="EventTimeline"
-                                  Grid.Row="4"
+                                  Grid.Row="6"
                                   AutomationProperties.Name="宏事件时间线"
                                   Focusable="True"
                                   IsTabStop="True"
@@ -464,7 +533,7 @@
                                 <ComboBox x:Name="DiagnosticSeverityFilter"
                                           ItemsSource="{Binding DiagnosticSeverityOptions}"
                                           AutomationProperties.Name="诊断严重级别筛选"
-                                          TabIndex="12"
+                                          TabIndex="18"
                                           DisplayMemberPath="DisplayName"
                                           SelectedItem="{Binding SelectedDiagnosticSeverity, Mode=TwoWay}"
                                           Background="Transparent"
@@ -480,7 +549,7 @@
                                 <ComboBox x:Name="DiagnosticScopeFilter"
                                           ItemsSource="{Binding DiagnosticScopes}"
                                           AutomationProperties.Name="诊断来源筛选"
-                                          TabIndex="13"
+                                          TabIndex="19"
                                           DisplayMemberPath="DisplayName"
                                           SelectedItem="{Binding SelectedDiagnosticScope, Mode=TwoWay}"
                                           Background="Transparent"
@@ -512,7 +581,7 @@
                                           Focusable="True"
                                           IsTabStop="True"
                                           KeyboardNavigation.TabNavigation="None"
-                                          TabIndex="14"
+                                          TabIndex="20"
                                           VerticalScrollBarVisibility="Auto"
                                           HorizontalScrollBarVisibility="Disabled">
                                 <ItemsControl x:Name="DiagnosticGroupList"
@@ -641,7 +710,7 @@
                             <Button x:Name="CancelButton"
                                     Grid.Column="1"
                                     AutomationProperties.Name="取消当前操作"
-                                    TabIndex="15"
+                                    TabIndex="21"
                                     Margin="12,0,0,0"
                                     MinWidth="72"
                                     VerticalAlignment="Bottom"

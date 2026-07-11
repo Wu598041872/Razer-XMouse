@@ -15,6 +15,11 @@ var tests = new (string Name, Action Run)[]
     ("Razer XML rejects DTD", RazerXmlRejectsDtd),
     ("XMBC text fixture imports safely", XmbcTextFixtureImportsSafely),
     ("XMBC unknown token is preserved as error", XmbcUnknownTokenIsPreservedAsError),
+    ("Nested macros flatten by GUID", NestedMacrosFlattenByGuid),
+    ("Missing nested macro is rejected", MissingNestedMacroIsRejected),
+    ("Nested macro cycle is rejected", NestedMacroCycleIsRejected),
+    ("Nested macro can fall back to index", NestedMacroCanFallBackToIndex),
+    ("Nested expansion event limit is enforced", NestedExpansionEventLimitIsEnforced),
 };
 
 var failures = new List<string>();
@@ -121,8 +126,73 @@ static void XmbcUnknownTokenIsPreservedAsError()
     Assert(new MacroValidator().Validate(result.Documents[0]).HasErrors, "Unknown token must block validation.");
 }
 
+static void NestedMacrosFlattenByGuid()
+{
+    var child = CreateNamedDocument(
+        "Child",
+        new KeyMacroEvent(0, 65, InputTransition.Down),
+        new KeyMacroEvent(1, 65, InputTransition.Up));
+    var root = CreateNamedDocument(
+        "Root",
+        new DelayMacroEvent(0, 10),
+        new MacroReferenceEvent(1, child.Id, null, child.Name),
+        new DelayMacroEvent(2, 20));
+
+    var result = new NestedMacroResolver().Resolve(root, [root, child]);
+    var flattened = result.Document ?? throw new InvalidOperationException("Expected flattened macro.");
+    Assert(flattened.Events.Count == 4, "Expected four flattened events.");
+    Assert(!flattened.Events.OfType<MacroReferenceEvent>().Any(), "Flattened macro must not contain references.");
+    Assert(flattened.Events.Select(item => item.Sequence).SequenceEqual([0L, 1L, 2L, 3L]), "Flattened events must be resequenced.");
+}
+
+static void MissingNestedMacroIsRejected()
+{
+    var root = CreateNamedDocument(
+        "Root",
+        new MacroReferenceEvent(0, Guid.NewGuid(), null, "Missing"));
+
+    var result = new NestedMacroResolver().Resolve(root, [root]);
+    Assert(result.Document is null, "Missing reference must not produce a flattened document.");
+    Assert(result.Diagnostics.Any(item => item.Code == "REFERENCE_MISSING"), "Missing reference diagnostic is absent.");
+}
+
+static void NestedMacroCycleIsRejected()
+{
+    var firstId = Guid.NewGuid();
+    var secondId = Guid.NewGuid();
+    var first = new MacroDocument(firstId, "First", [new MacroReferenceEvent(0, secondId, null, "Second")]);
+    var second = new MacroDocument(secondId, "Second", [new MacroReferenceEvent(0, firstId, null, "First")]);
+
+    var result = new NestedMacroResolver().Resolve(first, [first, second]);
+    Assert(result.Document is null, "Cycle must not produce a flattened document.");
+    Assert(result.Diagnostics.Any(item => item.Code == "REFERENCE_CYCLE"), "Cycle diagnostic is absent.");
+}
+
+static void NestedMacroCanFallBackToIndex()
+{
+    var child = CreateNamedDocument("Child", new DelayMacroEvent(0, 5));
+    var root = CreateNamedDocument("Root", new MacroReferenceEvent(0, Guid.NewGuid(), 1, "Child"));
+
+    var result = new NestedMacroResolver().Resolve(root, [root, child]);
+    Assert(result.Document is not null, "Valid fallback index should resolve.");
+    Assert(result.Diagnostics.Any(item => item.Code == "REFERENCE_GUID_FALLBACK_INDEX"), "Fallback warning is absent.");
+}
+
+static void NestedExpansionEventLimitIsEnforced()
+{
+    var child = CreateNamedDocument("Child", new DelayMacroEvent(0, 1), new DelayMacroEvent(1, 1));
+    var root = CreateNamedDocument("Root", new MacroReferenceEvent(0, child.Id, null, "Child"));
+
+    var result = new NestedMacroResolver().Resolve(root, [root, child], new MacroLimits(MaximumEventsPerMacro: 1));
+    Assert(result.Document is null, "Over-limit expansion must not produce a document.");
+    Assert(result.Diagnostics.Any(item => item.Code == "REFERENCE_EVENT_LIMIT"), "Expansion limit diagnostic is absent.");
+}
+
 static MacroDocument CreateDocument(params MacroEvent[] events) =>
     new(Guid.NewGuid(), "Test macro", events);
+
+static MacroDocument CreateNamedDocument(string name, params MacroEvent[] events) =>
+    new(Guid.NewGuid(), name, events);
 
 static void Assert(bool condition, string message)
 {

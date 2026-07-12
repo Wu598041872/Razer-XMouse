@@ -20,6 +20,7 @@ var tests = new (string Name, Action Run)[]
     ("Negative delay is rejected", NegativeDelayIsRejected),
     ("Event limit is enforced", EventLimitIsEnforced),
     ("Razer XML fixture imports safely", RazerXmlFixtureImportsSafely),
+    ("Razer XML native zero-based mouse codes import", RazerXmlNativeZeroBasedMouseCodesImport),
     ("Razer XML rejects DTD", RazerXmlRejectsDtd),
     ("Razer XML malformed event preserves surrounding events", RazerXmlMalformedEventPreservesSurroundingEvents),
     ("Razer delay precision loss is diagnosed", RazerDelayPrecisionLossIsDiagnosed),
@@ -174,6 +175,41 @@ static void RazerXmlFixtureImportsSafely()
     Assert(result.Documents[0].Events.OfType<DelayMacroEvent>().Select(item => item.Milliseconds).SequenceEqual([50L, 10L]), "Delay conversion is incorrect.");
     Assert(result.Diagnostics.All(item => item.Code != "RAZER_DELAY_PRECISION_LOSS"), "Exact millisecond delays must not produce precision warnings.");
     Assert(!new MacroValidator().Validate(result.Documents[0]).HasErrors, "Imported fixture should validate.");
+}
+
+static void RazerXmlNativeZeroBasedMouseCodesImport()
+{
+    const string xml = """
+        <Macro><Name>Native Mouse Codes</Name><MacroEvents>
+          <MacroEvent><Type>2</Type><MouseEvent><MouseButton>0</MouseButton><State>0</State></MouseEvent></MacroEvent>
+          <MacroEvent><Type>2</Type><MouseEvent><MouseButton>0</MouseButton><State>1</State></MouseEvent></MacroEvent>
+          <MacroEvent><Type>6</Type><Number>2</Number><LoopEvent><State>0</State></LoopEvent></MacroEvent>
+          <MacroEvent><Type>2</Type><MouseEvent><MouseButton>1</MouseButton><State>0</State></MouseEvent></MacroEvent>
+          <MacroEvent><Type>2</Type><MouseEvent><MouseButton>1</MouseButton><State>1</State></MouseEvent></MacroEvent>
+          <MacroEvent><Type>6</Type><Number>2</Number><LoopEvent><State>1</State></LoopEvent></MacroEvent>
+        </MacroEvents><DelaySetting>0</DelaySetting><Version>4</Version><MouseMoveType>none</MouseMoveType></Macro>
+        """;
+    using var input = new MemoryStream(Encoding.UTF8.GetBytes(xml));
+    var result = new RazerMacroXmlImporter().ImportAsync(input, "native-zero-based.xml").GetAwaiter().GetResult();
+
+    Assert(result.Diagnostics.All(item => item.Severity != DiagnosticSeverity.Error), "Native zero-based mouse codes produced an import error.");
+    Assert(
+        EventSignatures(result.Documents.Single()).SequenceEqual([
+            "mouse:Left:Down",
+            "mouse:Left:Up",
+            "mouse:Right:Down",
+            "mouse:Right:Up",
+            "mouse:Right:Down",
+            "mouse:Right:Up",
+        ]),
+        "Native zero-based mouse codes or loop expansion changed mouse semantics.");
+
+    using var output = new MemoryStream();
+    var diagnostics = new XmbcMacroTextExporter().ExportAsync(result.Documents.Single(), output).GetAwaiter().GetResult();
+    Assert(diagnostics.All(item => item.Severity != DiagnosticSeverity.Error), "Native mouse codes failed XMBC export.");
+    var text = Encoding.UTF8.GetString(output.ToArray());
+    Assert(text.Contains("{LMBD}{LMBU}", StringComparison.Ordinal), "Native left click did not export to XMBC.");
+    Assert(text.Split("{RMBD}{RMBU}", StringSplitOptions.None).Length - 1 == 2, "Expanded native right-click loop did not export twice.");
 }
 
 static void RazerXmlRejectsDtd()

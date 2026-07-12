@@ -115,6 +115,7 @@ public sealed class RazerMacroXmlImporter : IMacroImporter
         }
 
         var result = new List<MacroEvent>();
+        var mouseButtonEncoding = DetectMouseButtonEncoding(container);
         long sequence = 0;
         var sourceEventIndex = 0;
         foreach (var element in container.Elements().Where(item =>
@@ -156,7 +157,7 @@ public sealed class RazerMacroXmlImporter : IMacroImporter
                         result.Add(ParseKey(element, eventSequence));
                         break;
                     case "2":
-                        result.Add(ParseMouse(element, eventSequence));
+                        result.Add(ParseMouse(element, eventSequence, mouseButtonEncoding));
                         break;
                     case "6":
                         result.Add(ParseType6Event(element, eventSequence));
@@ -273,19 +274,42 @@ public sealed class RazerMacroXmlImporter : IMacroImporter
         return new KeyMacroEvent(sequence, virtualKey, transition);
     }
 
-    private static MouseMacroEvent ParseMouse(XElement element, long sequence)
+    private static MouseMacroEvent ParseMouse(
+        XElement element,
+        long sequence,
+        RazerMouseButtonEncoding encoding)
     {
         var mouseEvent = GetRequiredChild(element, "MouseEvent");
         var buttonCode = int.Parse(GetRequiredChildValue(mouseEvent, "MouseButton"), CultureInfo.InvariantCulture);
-        var button = buttonCode switch
+        var button = (encoding, buttonCode) switch
         {
-            1 => MouseButton.Left,
-            2 => MouseButton.Right,
+            (RazerMouseButtonEncoding.ZeroBased, 0) => MouseButton.Left,
+            (RazerMouseButtonEncoding.ZeroBased, 1) => MouseButton.Right,
+            (RazerMouseButtonEncoding.OneBased, 1) => MouseButton.Left,
+            (RazerMouseButtonEncoding.OneBased, 2) => MouseButton.Right,
             _ => throw new FormatException($"尚未确认雷云鼠标按钮代码 {buttonCode} 的含义。"),
         };
 
         var transition = ParseTransition(GetRequiredChildValue(mouseEvent, "State"));
         return new MouseMacroEvent(sequence, button, transition);
+    }
+
+    private static RazerMouseButtonEncoding DetectMouseButtonEncoding(XElement container)
+    {
+        foreach (var element in container.Elements().Where(item =>
+                     string.Equals(item.Name.LocalName, "MacroEvent", StringComparison.OrdinalIgnoreCase) &&
+                     GetChildValue(item, "Type") == "2"))
+        {
+            var mouseEvent = element.Elements().FirstOrDefault(item =>
+                string.Equals(item.Name.LocalName, "MouseEvent", StringComparison.OrdinalIgnoreCase));
+            var buttonText = mouseEvent is null ? null : GetChildValue(mouseEvent, "MouseButton");
+            if (buttonText == "0")
+            {
+                return RazerMouseButtonEncoding.ZeroBased;
+            }
+        }
+
+        return RazerMouseButtonEncoding.OneBased;
     }
 
     private static MacroReferenceEvent ParseReference(XElement element, long sequence)
@@ -361,4 +385,10 @@ public sealed class RazerMacroXmlImporter : IMacroImporter
         new(
             [],
             [new ConversionDiagnostic(code, DiagnosticSeverity.Error, message, SourceContext: DiagnosticContext.FromSourceName(sourceName))]);
+
+    private enum RazerMouseButtonEncoding
+    {
+        ZeroBased,
+        OneBased,
+    }
 }

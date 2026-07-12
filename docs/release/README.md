@@ -1,4 +1,4 @@
-# XMacro Bridge 0.1.0-preview.3
+# XMacro Bridge 0.1.0-preview.4
 
 这是 Windows 10/11 x64 自包含绿色预览版，用于在 Razer Synapse 雷云 4 与 X-Mouse Button Control（XMBC）之间离线转换和编辑键鼠宏。
 

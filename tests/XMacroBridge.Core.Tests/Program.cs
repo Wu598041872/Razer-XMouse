@@ -1,6 +1,7 @@
 using XMacroBridge.Application.Exporting;
 using XMacroBridge.Application.Formats;
 using XMacroBridge.Application.Importing;
+using XMacroBridge.Core.Abstractions;
 using XMacroBridge.Core.Conversion;
 using XMacroBridge.Core.Diagnostics;
 using XMacroBridge.Core.Models;
@@ -63,8 +64,10 @@ var tests = new (string Name, Action Run)[]
     ("Application import service handles fixture directory", ApplicationImportServiceHandlesFixtureDirectory),
     ("Application import service preserves BOM-encoded inputs", ApplicationImportServicePreservesBomEncodedInputs),
     ("Application import service diagnoses unknown XML", ApplicationImportServiceDiagnosesUnknownXml),
+    ("Cancelled import releases input handle and supports retry", CancelledImportReleasesInputHandleAndSupportsRetry),
     ("Safe export writes atomically and protects source", SafeExportWritesAtomicallyAndProtectsSource),
     ("Failed safe export cleans temporary files", FailedSafeExportCleansTemporaryFiles),
+    ("Cancelled workspace export preserves target and supports retry", CancelledWorkspaceExportPreservesTargetAndSupportsRetry),
     ("Safe export rejects Windows reserved names", SafeExportRejectsWindowsReservedNames),
     ("Workspace imports fixtures and refreshes event rows", WorkspaceImportsFixturesAndRefreshesEventRows),
     ("Workspace expands nested macros before export", WorkspaceExpandsNestedMacrosBeforeExport),
@@ -954,6 +957,47 @@ static void ApplicationImportServiceDiagnosesUnknownXml()
     }
 }
 
+static void CancelledImportReleasesInputHandleAndSupportsRetry()
+{
+    var tempDirectory = CreateTemporaryDirectory();
+    try
+    {
+        var filePath = Path.Combine(tempDirectory, "cancel-import.txt");
+        File.WriteAllText(filePath, "controlled import input", Encoding.UTF8);
+        var originalHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(filePath)));
+        var importer = new CancellableThenSuccessfulImporter();
+        var registry = new MacroFormatRegistry([importer], Array.Empty<IMacroExporter>());
+        var service = new MacroImportService(registry);
+        using var cancellation = new CancellationTokenSource();
+
+        var importTask = service.ImportAsync([filePath], cancellationToken: cancellation.Token);
+        Assert(importer.Started.Task.Wait(TimeSpan.FromSeconds(5)), "Controlled importer did not reach its cancellation point.");
+        cancellation.Cancel();
+        try
+        {
+            importTask.GetAwaiter().GetResult();
+            throw new InvalidOperationException("Cancelled import completed without cancellation.");
+        }
+        catch (OperationCanceledException)
+        {
+        }
+
+        using (File.Open(filePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+        }
+
+        Assert(
+            Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(filePath))) == originalHash,
+            "Cancelled import modified the input file.");
+        var retry = service.ImportAsync([filePath]).GetAwaiter().GetResult();
+        Assert(retry.Documents.Count == 1 && retry.Documents[0].Name == "取消后重试", "Import service was not reusable after cancellation.");
+    }
+    finally
+    {
+        Directory.Delete(tempDirectory, true);
+    }
+}
+
 static void SafeExportWritesAtomicallyAndProtectsSource()
 {
     var tempDirectory = CreateTemporaryDirectory();
@@ -990,6 +1034,52 @@ static void FailedSafeExportCleansTemporaryFiles()
         var result = service.ExportAsync(document, "razer.macro.xml", targetPath).GetAwaiter().GetResult();
         Assert(!result.Succeeded && !File.Exists(targetPath), "Failed export created a target file.");
         Assert(!Directory.EnumerateFiles(tempDirectory).Any(), "Failed export left temporary or backup files.");
+    }
+    finally
+    {
+        Directory.Delete(tempDirectory, true);
+    }
+}
+
+static void CancelledWorkspaceExportPreservesTargetAndSupportsRetry()
+{
+    var tempDirectory = CreateTemporaryDirectory();
+    try
+    {
+        var targetPath = Path.Combine(tempDirectory, "cancel-export.xml");
+        File.WriteAllText(targetPath, "original target", Encoding.UTF8);
+        var exporter = new CancellableThenSuccessfulExporter();
+        var registry = new MacroFormatRegistry(Array.Empty<IMacroImporter>(), [exporter]);
+        var viewModel = new WorkspaceViewModel(
+            new MacroImportService(registry),
+            new SafeExportService(registry),
+            new NestedMacroResolver(),
+            new MacroValidator());
+        var document = CreateDocument(
+            new KeyMacroEvent(0, 65, InputTransition.Down),
+            new KeyMacroEvent(1, 65, InputTransition.Up));
+        viewModel.Macros.Add(document);
+        viewModel.SelectedMacro = document;
+
+        var exportTask = viewModel.ExportAsync(targetPath, overwrite: true);
+        Assert(exporter.Started.Task.Wait(TimeSpan.FromSeconds(5)), "Controlled exporter did not reach its cancellation point.");
+        Assert(viewModel.IsBusy && viewModel.CanCancel, "Workspace did not expose its active export state.");
+        viewModel.Cancel();
+        var cancelled = exportTask.GetAwaiter().GetResult();
+
+        Assert(!cancelled.Succeeded, "Cancelled export unexpectedly succeeded.");
+        Assert(cancelled.Diagnostics.Any(item => item.Code == "WORKSPACE_EXPORT_CANCELLED"), "Workspace cancellation diagnostic is absent.");
+        Assert(!viewModel.IsBusy && !viewModel.CanCancel && viewModel.CanExport, "Workspace did not recover after export cancellation.");
+        Assert(File.ReadAllText(targetPath, Encoding.UTF8) == "original target", "Cancelled export changed the existing target.");
+        Assert(Directory.EnumerateFiles(tempDirectory).Count() == 1, "Cancelled export left a temporary or backup file.");
+        using (File.Open(targetPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+        }
+
+        var retry = viewModel.ExportAsync(targetPath, overwrite: true).GetAwaiter().GetResult();
+        Assert(retry.Succeeded, "Workspace export was not reusable after cancellation.");
+        Assert(File.ReadAllText(targetPath, Encoding.UTF8) == "complete target", "Retry export did not atomically replace the target.");
+        Assert(Directory.EnumerateFiles(tempDirectory).Count() == 1, "Retry export left a temporary or backup file.");
     }
     finally
     {
@@ -1735,5 +1825,61 @@ static void Assert(bool condition, string message)
     if (!condition)
     {
         throw new InvalidOperationException(message);
+    }
+}
+
+sealed class CancellableThenSuccessfulImporter : IMacroImporter
+{
+    private int invocationCount;
+
+    public string FormatId => "test.cancellable-import";
+
+    public TaskCompletionSource<bool> Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public bool CanImport(ReadOnlySpan<byte> header, string? fileName) => true;
+
+    public async Task<MacroImportResult> ImportAsync(
+        Stream input,
+        string? sourceName,
+        CancellationToken cancellationToken = default)
+    {
+        var invocation = Interlocked.Increment(ref invocationCount);
+        var buffer = new byte[1];
+        await input.ReadAsync(buffer, cancellationToken);
+        if (invocation == 1)
+        {
+            Started.TrySetResult(true);
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+        }
+
+        return new MacroImportResult(
+            [new MacroDocument(Guid.NewGuid(), "取消后重试", [new DelayMacroEvent(0, 1)])],
+            []);
+    }
+}
+
+sealed class CancellableThenSuccessfulExporter : IMacroExporter
+{
+    private int invocationCount;
+
+    public string FormatId => "razer.macro.xml";
+
+    public TaskCompletionSource<bool> Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public async Task<IReadOnlyList<ConversionDiagnostic>> ExportAsync(
+        MacroDocument document,
+        Stream output,
+        CancellationToken cancellationToken = default)
+    {
+        var invocation = Interlocked.Increment(ref invocationCount);
+        var content = Encoding.UTF8.GetBytes(invocation == 1 ? "partial target" : "complete target");
+        await output.WriteAsync(content, cancellationToken);
+        if (invocation == 1)
+        {
+            Started.TrySetResult(true);
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+        }
+
+        return Array.Empty<ConversionDiagnostic>();
     }
 }

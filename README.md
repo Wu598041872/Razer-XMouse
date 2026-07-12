@@ -2,7 +2,7 @@
 
 XMacro Bridge 是一款面向 Windows 10/11 x64 的离线鼠标宏转换工具，用于在 Razer Synapse 雷云 4 与 X-Mouse Button Control（XMBC）之间转换、检查和编辑键鼠宏。
 
-当前版本：`0.1.0-preview.1`。
+当前版本：`0.1.0-preview.2`。
 
 ## 快速使用
 

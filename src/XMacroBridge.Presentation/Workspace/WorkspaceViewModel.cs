@@ -1035,9 +1035,25 @@ public sealed class WorkspaceViewModel : ObservableObject
         }
 
         var validation = validator.Validate(document, limits);
-        diagnostics.AddRange(WithMacroContext(validation.Diagnostics, currentMacroName));
+        diagnostics.AddRange(WithMacroContext(validation.Diagnostics, currentMacroName)
+            .Where(item => !IsRedundantUnknownEventDiagnostic(item)));
         selectedMacroHasBlockingErrors = validation.HasErrors;
         ReplaceEvaluationDiagnostics(currentMacro, diagnostics);
+    }
+
+    private bool IsRedundantUnknownEventDiagnostic(ConversionDiagnostic diagnostic)
+    {
+        if (!string.Equals(diagnostic.Code, "UNKNOWN_EVENT", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return Diagnostics.Any(existing =>
+            existing.EventSequence == diagnostic.EventSequence &&
+            string.Equals(existing.SourceContext, diagnostic.SourceContext, StringComparison.Ordinal) &&
+            existing.Code is "RAZER_EVENT_UNKNOWN" or "RAZER_EVENT_INVALID" or
+                "SYNAPSE4_EVENT_UNKNOWN" or "SYNAPSE4_EVENT_INVALID" or
+                "XMBC_TOKEN_UNKNOWN" or "IMPORT_EVENT_LIMIT");
     }
 
     private static IEnumerable<ConversionDiagnostic> WithMacroContext(

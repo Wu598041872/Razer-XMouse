@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -216,6 +217,9 @@ public sealed class Synapse4Importer : IMacroImporter
                     case "2":
                         events.Add(ParseMouse(item, eventSequence));
                         break;
+                    case "6":
+                        events.Add(ParseMillisecondDelay(item, eventSequence));
+                        break;
                     case "7":
                         events.Add(ParseReference(item, eventSequence));
                         break;
@@ -279,6 +283,23 @@ public sealed class Synapse4Importer : IMacroImporter
         }
 
         return new DelayMacroEvent(sequence, conversion.Milliseconds);
+    }
+
+    private static DelayMacroEvent ParseMillisecondDelay(JsonElement item, long sequence)
+    {
+        if (!TryGetProperty(item, "Delay", out var delay))
+        {
+            throw new FormatException("Type 6 延时事件缺少 Delay。 ");
+        }
+
+        var text = delay.ValueKind == JsonValueKind.String ? delay.GetString() : delay.GetRawText();
+        if (!long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var milliseconds) ||
+            milliseconds < 0)
+        {
+            throw new FormatException($"Type 6 延时 {text} 不是有效的非负整数毫秒。 ");
+        }
+
+        return new DelayMacroEvent(sequence, milliseconds);
     }
 
     private static KeyMacroEvent ParseKey(JsonElement item, long sequence)

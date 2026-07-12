@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Macro>
+  <Name>匿名化 Type6 延时</Name>
+  <MacroEvents>
+    <MacroEvent>
+      <Type>2</Type>
+      <MouseEvent>
+        <MouseButton>0</MouseButton>
+        <State>0</State>
+      </MouseEvent>
+    </MacroEvent>
+    <MacroEvent>
+      <Type>6</Type>
+      <Delay>265</Delay>
+    </MacroEvent>
+    <MacroEvent>
+      <Type>2</Type>
+      <MouseEvent>
+        <MouseButton>0</MouseButton>
+        <State>1</State>
+      </MouseEvent>
+    </MacroEvent>
+  </MacroEvents>
+</Macro>

@@ -23,6 +23,7 @@ var tests = new (string Name, Action Run)[]
     ("Razer XML rejects DTD", RazerXmlRejectsDtd),
     ("Razer XML malformed event preserves surrounding events", RazerXmlMalformedEventPreservesSurroundingEvents),
     ("Razer delay precision loss is diagnosed", RazerDelayPrecisionLossIsDiagnosed),
+    ("Razer XML Type 6 millisecond delay imports", RazerXmlType6MillisecondDelayImports),
     ("XMBC text fixture imports safely", XmbcTextFixtureImportsSafely),
     ("XMBC unknown token is preserved as error", XmbcUnknownTokenIsPreservedAsError),
     ("Unknown-event validation does not expose raw payload", UnknownEventValidationDoesNotExposeRawPayload),
@@ -36,6 +37,7 @@ var tests = new (string Name, Action Run)[]
     ("Synapse4 invalid macro entry does not block later entries", Synapse4InvalidMacroEntryDoesNotBlockLaterEntries),
     ("Synapse4 malformed event is preserved", Synapse4MalformedEventIsPreserved),
     ("Synapse4 malformed known event preserves surrounding events", Synapse4MalformedKnownEventPreservesSurroundingEvents),
+    ("Synapse4 Type 6 millisecond delay imports", Synapse4Type6MillisecondDelayImports),
     ("UTF BOM encodings import consistently", UtfBomEncodingsImportConsistently),
     ("XML importers enforce supported encoding policy", XmlImportersEnforceSupportedEncodingPolicy),
     ("Format diagnostics sanitize source paths", FormatDiagnosticsSanitizeSourcePaths),
@@ -73,6 +75,7 @@ var tests = new (string Name, Action Run)[]
     ("Export rejects a file used as the target directory", ExportRejectsFileUsedAsTargetDirectory),
     ("Safe export rejects Windows reserved names", SafeExportRejectsWindowsReservedNames),
     ("Workspace imports fixtures and refreshes event rows", WorkspaceImportsFixturesAndRefreshesEventRows),
+    ("Workspace suppresses duplicate unknown-event diagnostics", WorkspaceSuppressesDuplicateUnknownEventDiagnostics),
     ("Workspace expands nested macros before export", WorkspaceExpandsNestedMacrosBeforeExport),
     ("Workspace exports both supported target formats", WorkspaceExportsBothSupportedTargetFormats),
     ("Workspace blocks invalid selection and reports missing selection", WorkspaceBlocksInvalidAndMissingSelection),
@@ -224,6 +227,46 @@ static void RazerDelayPrecisionLossIsDiagnosed()
     var negativeResult = new RazerMacroXmlImporter().ImportAsync(negativeStream, "negative.xml").GetAwaiter().GetResult();
     Assert(negativeResult.Documents.Single().Events.Single() is UnknownMacroEvent, "A negative sub-millisecond delay must not round into a valid zero delay.");
     Assert(negativeResult.Diagnostics.Any(item => item.Code == "RAZER_EVENT_INVALID"), "Negative Razer delay diagnostic is absent.");
+}
+
+static void RazerXmlType6MillisecondDelayImports()
+{
+    var fixturePath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "type6-millisecond-delay.xml");
+    using var stream = File.OpenRead(fixturePath);
+    var result = new RazerMacroXmlImporter().ImportAsync(stream, fixturePath).GetAwaiter().GetResult();
+    var document = result.Documents.Single();
+
+    Assert(result.Diagnostics.All(item => item.Severity != DiagnosticSeverity.Error), "Type 6 delay produced an import error.");
+    Assert(
+        document.Events.Count == 3 && document.Events[1] is DelayMacroEvent { Milliseconds: 265 },
+        "Type 6 Delay was not imported as an integer millisecond delay.");
+    Assert(!new MacroValidator().Validate(document).HasErrors, "Type 6 delay fixture failed state validation.");
+
+    var viewModel = WorkspaceViewModel.CreateDefault();
+    viewModel.ImportAsync([fixturePath]).GetAwaiter().GetResult();
+    Assert(viewModel.CanExport, "Type 6 delay fixture remained blocked in the workspace.");
+
+    using var xmbcOutput = new MemoryStream();
+    var xmbcDiagnostics = new XmbcMacroTextExporter()
+        .ExportAsync(document, xmbcOutput)
+        .GetAwaiter()
+        .GetResult();
+    Assert(xmbcDiagnostics.All(item => item.Severity != DiagnosticSeverity.Error), "Type 6 delay failed XMBC export.");
+    Assert(
+        Encoding.UTF8.GetString(xmbcOutput.ToArray()).Contains("{WAITMS:265}", StringComparison.Ordinal),
+        "Type 6 delay did not export as XMBC millisecond delay.");
+
+    using var razerOutput = new MemoryStream();
+    var razerDiagnostics = new RazerMacroXmlExporter()
+        .ExportAsync(document, razerOutput)
+        .GetAwaiter()
+        .GetResult();
+    Assert(razerDiagnostics.All(item => item.Severity != DiagnosticSeverity.Error), "Type 6 delay failed Razer XML export.");
+    razerOutput.Position = 0;
+    var roundTrip = new RazerMacroXmlImporter().ImportAsync(razerOutput, "type6-roundtrip.xml").GetAwaiter().GetResult();
+    Assert(
+        roundTrip.Documents.Single().Events[1] is DelayMacroEvent { Milliseconds: 265 },
+        "Type 6 delay changed during Razer XML export round trip.");
 }
 
 static void XmbcTextFixtureImportsSafely()
@@ -401,6 +444,18 @@ static void Synapse4MalformedKnownEventPreservesSurroundingEvents()
     Assert(diagnostics.Length == 4, "Each malformed known Synapse event requires one diagnostic.");
     Assert(diagnostics.Select(item => item.EventSequence).SequenceEqual(new long?[] { 1, 2, 3, 4 }), "Malformed Synapse event sequences are incorrect.");
     Assert(diagnostics.All(item => item.SourceContext == "Known Malformed"), "Malformed known Synapse diagnostics are missing macro context.");
+}
+
+static void Synapse4Type6MillisecondDelayImports()
+{
+    var fixturePath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "type6-millisecond-delay.synapse4");
+    using var stream = File.OpenRead(fixturePath);
+    var result = new Synapse4Importer().ImportAsync(stream, fixturePath).GetAwaiter().GetResult();
+
+    Assert(result.Diagnostics.All(item => item.Severity != DiagnosticSeverity.Error), "Synapse4 Type 6 delay produced an import error.");
+    Assert(
+        result.Documents.Single().Events.Single() is DelayMacroEvent { Milliseconds: 265 },
+        "Synapse4 Type 6 Delay was not imported as an integer millisecond delay.");
 }
 
 static void UtfBomEncodingsImportConsistently()
@@ -1216,6 +1271,36 @@ static void WorkspaceImportsFixturesAndRefreshesEventRows()
     {
         Directory.Delete(tempDirectory, true);
     }
+}
+
+static void WorkspaceSuppressesDuplicateUnknownEventDiagnostics()
+{
+    const string xml = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <Macro>
+          <Name>重复诊断</Name>
+          <MacroEvents>
+            <MacroEvent><Type>999</Type><Payload>unknown</Payload></MacroEvent>
+          </MacroEvents>
+        </Macro>
+        """;
+    using var stream = new MemoryStream(Encoding.UTF8.GetBytes(xml));
+    var imported = new RazerMacroXmlImporter().ImportAsync(stream, "duplicate.xml").GetAwaiter().GetResult();
+    var viewModel = WorkspaceViewModel.CreateDefault();
+    foreach (var document in imported.Documents)
+    {
+        viewModel.Macros.Add(document);
+    }
+    foreach (var diagnostic in imported.Diagnostics)
+    {
+        viewModel.Diagnostics.Add(diagnostic);
+    }
+
+    viewModel.SelectedMacro = viewModel.Macros.Single();
+
+    Assert(viewModel.Diagnostics.Any(item => item.Code == "RAZER_EVENT_UNKNOWN"), "Root unknown-event diagnostic is absent.");
+    Assert(!viewModel.Diagnostics.Any(item => item.Code == "UNKNOWN_EVENT"), "Workspace added a duplicate generic unknown-event diagnostic.");
+    Assert(viewModel.Diagnostics.Count(item => item.Severity == DiagnosticSeverity.Error) == 1, "Unknown event should produce one actionable error.");
 }
 
 static void WorkspaceSearchesTimelineEventsAndCyclesSelection()

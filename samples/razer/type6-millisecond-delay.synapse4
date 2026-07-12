@@ -1,0 +1,13 @@
+{
+  "productId": 122,
+  "deviceName": "",
+  "category": "MOUSE",
+  "profiles": [],
+  "macros": [
+    {
+      "name": "匿名化 Type6 延时",
+      "payload": "eyJndWlkIjoiMzMzMzMzMzMtMzMzMy0zMzMzLTMzMzMtMzMzMzMzMzMzMzMzIiwibWFjcm9FdmVudHMiOlt7IlR5cGUiOjYsIkRlbGF5IjoyNjV9XX0=",
+      "hash": "fixture-not-verified"
+    }
+  ]
+}

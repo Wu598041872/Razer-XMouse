@@ -157,6 +157,9 @@ public sealed class RazerMacroXmlImporter : IMacroImporter
                     case "2":
                         result.Add(ParseMouse(element, eventSequence));
                         break;
+                    case "6":
+                        result.Add(ParseMillisecondDelay(element, eventSequence));
+                        break;
                     case "7":
                         result.Add(ParseReference(element, eventSequence));
                         break;
@@ -213,6 +216,18 @@ public sealed class RazerMacroXmlImporter : IMacroImporter
         }
 
         return new DelayMacroEvent(sequence, conversion.Milliseconds);
+    }
+
+    private static DelayMacroEvent ParseMillisecondDelay(XElement element, long sequence)
+    {
+        var value = GetRequiredChildValue(element, "Delay");
+        if (!long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var milliseconds) ||
+            milliseconds < 0)
+        {
+            throw new FormatException($"Type 6 延时 {value} 不是有效的非负整数毫秒。 ");
+        }
+
+        return new DelayMacroEvent(sequence, milliseconds);
     }
 
     private static KeyMacroEvent ParseKey(XElement element, long sequence)

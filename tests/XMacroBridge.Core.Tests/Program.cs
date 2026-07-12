@@ -68,6 +68,9 @@ var tests = new (string Name, Action Run)[]
     ("Safe export writes atomically and protects source", SafeExportWritesAtomicallyAndProtectsSource),
     ("Failed safe export cleans temporary files", FailedSafeExportCleansTemporaryFiles),
     ("Cancelled workspace export preserves target and supports retry", CancelledWorkspaceExportPreservesTargetAndSupportsRetry),
+    ("Locked export target is preserved and supports retry", LockedExportTargetIsPreservedAndSupportsRetry),
+    ("Write failure cleans partial export and preserves target", WriteFailureCleansPartialExportAndPreservesTarget),
+    ("Export rejects a file used as the target directory", ExportRejectsFileUsedAsTargetDirectory),
     ("Safe export rejects Windows reserved names", SafeExportRejectsWindowsReservedNames),
     ("Workspace imports fixtures and refreshes event rows", WorkspaceImportsFixturesAndRefreshesEventRows),
     ("Workspace expands nested macros before export", WorkspaceExpandsNestedMacrosBeforeExport),
@@ -1087,6 +1090,91 @@ static void CancelledWorkspaceExportPreservesTargetAndSupportsRetry()
     }
 }
 
+static void LockedExportTargetIsPreservedAndSupportsRetry()
+{
+    var tempDirectory = CreateTemporaryDirectory();
+    try
+    {
+        var targetPath = Path.Combine(tempDirectory, "locked.xml");
+        File.WriteAllText(targetPath, "locked original", Encoding.UTF8);
+        var document = CreateDocument(
+            new KeyMacroEvent(0, 65, InputTransition.Down),
+            new KeyMacroEvent(1, 65, InputTransition.Up));
+        var service = new SafeExportService(MacroFormatRegistry.CreateDefault());
+
+        ExportResult blocked;
+        using (File.Open(targetPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            blocked = service.ExportAsync(document, "razer.macro.xml", targetPath, overwrite: true).GetAwaiter().GetResult();
+        }
+
+        Assert(!blocked.Succeeded, "Export to an exclusively locked target unexpectedly succeeded.");
+        Assert(blocked.Diagnostics.Any(item => item.Code == "EXPORT_FILE_ERROR"), "Locked-target file diagnostic is absent.");
+        Assert(File.ReadAllText(targetPath, Encoding.UTF8) == "locked original", "Locked-target failure changed the original target.");
+        Assert(Directory.EnumerateFiles(tempDirectory).Count() == 1, "Locked-target failure left a temporary or backup file.");
+
+        var retry = service.ExportAsync(document, "razer.macro.xml", targetPath, overwrite: true).GetAwaiter().GetResult();
+        Assert(retry.Succeeded, "Export did not recover after the target lock was released.");
+        Assert(File.ReadAllText(targetPath, Encoding.UTF8) != "locked original", "Retry did not replace the target.");
+        Assert(Directory.EnumerateFiles(tempDirectory).Count() == 1, "Locked-target retry left a temporary or backup file.");
+    }
+    finally
+    {
+        Directory.Delete(tempDirectory, true);
+    }
+}
+
+static void WriteFailureCleansPartialExportAndPreservesTarget()
+{
+    var tempDirectory = CreateTemporaryDirectory();
+    try
+    {
+        var targetPath = Path.Combine(tempDirectory, "write-failure.xml");
+        File.WriteAllText(targetPath, "write failure original", Encoding.UTF8);
+        var registry = new MacroFormatRegistry(Array.Empty<IMacroImporter>(), [new PartialWriteFailureExporter()]);
+        var service = new SafeExportService(registry);
+        var document = CreateDocument(new DelayMacroEvent(0, 1));
+
+        var result = service.ExportAsync(document, "razer.macro.xml", targetPath, overwrite: true).GetAwaiter().GetResult();
+
+        Assert(!result.Succeeded, "Controlled write failure unexpectedly succeeded.");
+        Assert(result.Diagnostics.Any(item => item.Code == "EXPORT_FILE_ERROR"), "Controlled write failure diagnostic is absent.");
+        Assert(File.ReadAllText(targetPath, Encoding.UTF8) == "write failure original", "Write failure changed the original target.");
+        Assert(Directory.EnumerateFiles(tempDirectory).Count() == 1, "Write failure left a partial temporary or backup file.");
+        using (File.Open(targetPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+        }
+    }
+    finally
+    {
+        Directory.Delete(tempDirectory, true);
+    }
+}
+
+static void ExportRejectsFileUsedAsTargetDirectory()
+{
+    var tempDirectory = CreateTemporaryDirectory();
+    try
+    {
+        var fileAsDirectory = Path.Combine(tempDirectory, "not-a-directory");
+        File.WriteAllText(fileAsDirectory, "blocking file", Encoding.UTF8);
+        var targetPath = Path.Combine(fileAsDirectory, "output.xml");
+        var service = new SafeExportService(MacroFormatRegistry.CreateDefault());
+        var document = CreateDocument(new DelayMacroEvent(0, 1));
+
+        var result = service.ExportAsync(document, "razer.macro.xml", targetPath).GetAwaiter().GetResult();
+
+        Assert(!result.Succeeded, "Export unexpectedly treated a file as a target directory.");
+        Assert(result.Diagnostics.Any(item => item.Code == "EXPORT_FILE_ERROR"), "Invalid target-directory diagnostic is absent.");
+        Assert(File.ReadAllText(fileAsDirectory, Encoding.UTF8) == "blocking file", "Invalid target-directory export changed the blocking file.");
+        Assert(Directory.EnumerateFileSystemEntries(tempDirectory).Count() == 1, "Invalid target-directory export created an artifact.");
+    }
+    finally
+    {
+        Directory.Delete(tempDirectory, true);
+    }
+}
+
 static void SafeExportRejectsWindowsReservedNames()
 {
     var tempDirectory = CreateTemporaryDirectory();
@@ -1881,5 +1969,19 @@ sealed class CancellableThenSuccessfulExporter : IMacroExporter
         }
 
         return Array.Empty<ConversionDiagnostic>();
+    }
+}
+
+sealed class PartialWriteFailureExporter : IMacroExporter
+{
+    public string FormatId => "razer.macro.xml";
+
+    public async Task<IReadOnlyList<ConversionDiagnostic>> ExportAsync(
+        MacroDocument document,
+        Stream output,
+        CancellationToken cancellationToken = default)
+    {
+        await output.WriteAsync(Encoding.UTF8.GetBytes("partial output"), cancellationToken);
+        throw new IOException("Controlled export write failure.");
     }
 }

@@ -32,6 +32,18 @@ public sealed class RazerMacroXmlExporter : IMacroExporter
                 key.Sequence));
         }
 
+        foreach (var key in document.Events.OfType<KeyMacroEvent>().Where(item => !item.IsExtended))
+        {
+            if (!RazerInputCodeConverter.TryVirtualKeyToMakeCode(key.VirtualKey, out _))
+            {
+                diagnostics.Add(new ConversionDiagnostic(
+                    "RAZER_EXPORT_KEY_UNSUPPORTED",
+                    DiagnosticSeverity.Error,
+                    $"无法将虚拟键码 {key.VirtualKey} 转换为雷云 4 所需的键盘扫描码。",
+                    key.Sequence));
+            }
+        }
+
         foreach (var mouse in document.Events.OfType<MouseMacroEvent>())
         {
             if (mouse.Button is not MouseButton.Left and not MouseButton.Right)
@@ -101,7 +113,14 @@ public sealed class RazerMacroXmlExporter : IMacroExporter
 
         var xml = new XDocument(
             new XDeclaration("1.0", "utf-8", null),
-            new XElement("Macro", new XElement("Name", document.Name), eventContainer));
+            new XElement(
+                "Macro",
+                new XElement("Name", document.Name),
+                eventContainer,
+                new XElement("DelaySetting", 0),
+                new XElement("Guid", document.Id),
+                new XElement("Version", 4),
+                new XElement("MouseMoveType", "none")));
         await using var buffer = new MemoryStream();
         var settings = new XmlWriterSettings
         {
@@ -129,7 +148,7 @@ public sealed class RazerMacroXmlExporter : IMacroExporter
         new(
             "MacroEvent",
             new XElement("Type", "actionBar"),
-            new XElement("recordProfile"),
+            new XElement("recordProfile", new XElement("mmtSetting", 0)),
             new XElement("selected", "false"));
 
     private static XElement CreateDelay(DelayMacroEvent delay)
@@ -149,13 +168,14 @@ public sealed class RazerMacroXmlExporter : IMacroExporter
     {
         var id = GetEventId(key.VirtualKey, key.Transition, activeIds, ref nextId);
         var state = key.Transition == InputTransition.Down ? 0 : 1;
+        _ = RazerInputCodeConverter.TryVirtualKeyToMakeCode(key.VirtualKey, out var makeCode);
         return new XElement(
             "MacroEvent",
             new XElement("Type", 1),
             new XElement("Id", id),
             new XElement(
                 "KeyEvent",
-                new XElement("Makecode", key.VirtualKey),
+                new XElement("Makecode", makeCode),
                 new XElement("State", state)),
             new XElement("flag", state),
             new XElement("selected", "false"),
@@ -169,7 +189,7 @@ public sealed class RazerMacroXmlExporter : IMacroExporter
     {
         var id = GetEventId(mouse.Button, mouse.Transition, activeIds, ref nextId);
         var state = mouse.Transition == InputTransition.Down ? 0 : 1;
-        var buttonCode = mouse.Button == MouseButton.Left ? 0 : 1;
+        var buttonCode = mouse.Button == MouseButton.Left ? 1 : 2;
         return new XElement(
             "MacroEvent",
             new XElement("Type", 2),
@@ -200,4 +220,5 @@ public sealed class RazerMacroXmlExporter : IMacroExporter
         activeIds.Remove(key);
         return existing;
     }
+
 }

@@ -82,7 +82,8 @@ public sealed class RazerMacroXmlImporter : IMacroImporter
                     "宏缺少名称，已使用文件名或默认名称。"));
             }
 
-            var events = ParseEvents(root, diagnostics, name, limits);
+            var parsedEvents = ParseEvents(root, diagnostics, name, limits);
+            var events = RazerLoopExpander.Expand(parsedEvents, diagnostics, name, limits, "RAZER");
             var document = new MacroDocument(documentId, name, events, FormatId, sourceName);
             return new MacroImportResult([document], diagnostics);
         }
@@ -158,7 +159,7 @@ public sealed class RazerMacroXmlImporter : IMacroImporter
                         result.Add(ParseMouse(element, eventSequence));
                         break;
                     case "6":
-                        result.Add(ParseMillisecondDelay(element, eventSequence));
+                        result.Add(ParseType6Event(element, eventSequence));
                         break;
                     case "7":
                         result.Add(ParseReference(element, eventSequence));
@@ -218,9 +219,39 @@ public sealed class RazerMacroXmlImporter : IMacroImporter
         return new DelayMacroEvent(sequence, conversion.Milliseconds);
     }
 
-    private static DelayMacroEvent ParseMillisecondDelay(XElement element, long sequence)
+    private static MacroEvent ParseType6Event(XElement element, long sequence)
     {
-        var value = GetRequiredChildValue(element, "Delay");
+        var loopEvent = element.Elements().FirstOrDefault(item =>
+            string.Equals(item.Name.LocalName, "LoopEvent", StringComparison.OrdinalIgnoreCase));
+        var delay = GetChildValue(element, "Delay");
+        if (loopEvent is not null && delay is not null)
+        {
+            throw new FormatException("Type 6 事件不能同时包含 Delay 和 LoopEvent。 ");
+        }
+
+        if (loopEvent is not null)
+        {
+            var number = GetRequiredChildValue(element, "Number");
+            if (!int.TryParse(number, NumberStyles.Integer, CultureInfo.InvariantCulture, out var count) || count <= 0)
+            {
+                throw new FormatException($"循环次数 {number} 不是有效的正整数。 ");
+            }
+
+            var state = GetRequiredChildValue(loopEvent, "State");
+            return state switch
+            {
+                "0" => new RazerLoopBoundaryEvent(sequence, true, count),
+                "1" => new RazerLoopBoundaryEvent(sequence, false, count),
+                _ => throw new FormatException($"未知的循环状态值：{state}。"),
+            };
+        }
+
+        if (delay is null)
+        {
+            throw new FormatException("Type 6 事件既不包含 Delay，也不包含 LoopEvent。 ");
+        }
+
+        var value = delay;
         if (!long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var milliseconds) ||
             milliseconds < 0)
         {
@@ -234,8 +265,12 @@ public sealed class RazerMacroXmlImporter : IMacroImporter
     {
         var keyEvent = GetRequiredChild(element, "KeyEvent");
         var makeCode = int.Parse(GetRequiredChildValue(keyEvent, "Makecode"), CultureInfo.InvariantCulture);
+        if (!RazerInputCodeConverter.TryMakeCodeToVirtualKey(makeCode, out var virtualKey))
+        {
+            throw new FormatException($"雷云键盘扫描码 {makeCode} 无法转换为 Windows 虚拟键码。");
+        }
         var transition = ParseTransition(GetRequiredChildValue(keyEvent, "State"));
-        return new KeyMacroEvent(sequence, makeCode, transition);
+        return new KeyMacroEvent(sequence, virtualKey, transition);
     }
 
     private static MouseMacroEvent ParseMouse(XElement element, long sequence)
@@ -244,8 +279,8 @@ public sealed class RazerMacroXmlImporter : IMacroImporter
         var buttonCode = int.Parse(GetRequiredChildValue(mouseEvent, "MouseButton"), CultureInfo.InvariantCulture);
         var button = buttonCode switch
         {
-            0 => MouseButton.Left,
-            1 => MouseButton.Right,
+            1 => MouseButton.Left,
+            2 => MouseButton.Right,
             _ => throw new FormatException($"尚未确认雷云鼠标按钮代码 {buttonCode} 的含义。"),
         };
 

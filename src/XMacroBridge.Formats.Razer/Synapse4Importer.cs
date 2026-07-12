@@ -155,7 +155,8 @@ public sealed class Synapse4Importer : IMacroImporter
             throw new FormatException("宏载荷缺少 macroEvents 数组。 ");
         }
 
-        var events = ParseEvents(macroEvents, diagnostics, name, limits);
+        var parsedEvents = ParseEvents(macroEvents, diagnostics, name, limits);
+        var events = RazerLoopExpander.Expand(parsedEvents, diagnostics, name, limits, "SYNAPSE4");
         return new MacroDocument(id, name, events, "razer.synapse4.macro", sourceName);
     }
 
@@ -218,7 +219,7 @@ public sealed class Synapse4Importer : IMacroImporter
                         events.Add(ParseMouse(item, eventSequence));
                         break;
                     case "6":
-                        events.Add(ParseMillisecondDelay(item, eventSequence));
+                        events.Add(ParseType6Event(item, eventSequence));
                         break;
                     case "7":
                         events.Add(ParseReference(item, eventSequence));
@@ -285,11 +286,39 @@ public sealed class Synapse4Importer : IMacroImporter
         return new DelayMacroEvent(sequence, conversion.Milliseconds);
     }
 
-    private static DelayMacroEvent ParseMillisecondDelay(JsonElement item, long sequence)
+    private static MacroEvent ParseType6Event(JsonElement item, long sequence)
     {
-        if (!TryGetProperty(item, "Delay", out var delay))
+        var hasLoop = TryGetProperty(item, "LoopEvent", out var loopEvent);
+        var hasDelay = TryGetProperty(item, "Delay", out var delay);
+        if (hasLoop && hasDelay)
         {
-            throw new FormatException("Type 6 延时事件缺少 Delay。 ");
+            throw new FormatException("Type 6 事件不能同时包含 Delay 和 LoopEvent。 ");
+        }
+
+        if (hasLoop)
+        {
+            if (loopEvent.ValueKind != JsonValueKind.Object)
+            {
+                throw new FormatException("字段 LoopEvent 不是有效对象。 ");
+            }
+
+            var count = GetRequiredInt32(item, "Number");
+            if (count <= 0)
+            {
+                throw new FormatException($"循环次数 {count} 不是有效的正整数。 ");
+            }
+
+            return GetRequiredInt32(loopEvent, "State") switch
+            {
+                0 => new RazerLoopBoundaryEvent(sequence, true, count),
+                1 => new RazerLoopBoundaryEvent(sequence, false, count),
+                var state => throw new FormatException($"未知的循环状态值：{state}。"),
+            };
+        }
+
+        if (!hasDelay)
+        {
+            throw new FormatException("Type 6 事件既不包含 Delay，也不包含 LoopEvent。 ");
         }
 
         var text = delay.ValueKind == JsonValueKind.String ? delay.GetString() : delay.GetRawText();

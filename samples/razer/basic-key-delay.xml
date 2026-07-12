@@ -10,24 +10,24 @@
     <MacroEvent>
       <Type>1</Type>
       <Id>1</Id>
-      <KeyEvent><Makecode>65</Makecode><State>0</State></KeyEvent>
+      <KeyEvent><Makecode>30</Makecode><State>0</State></KeyEvent>
     </MacroEvent>
     <MacroEvent><Type>0</Type><Number>0.050</Number></MacroEvent>
     <MacroEvent>
       <Type>1</Type>
       <Id>1</Id>
-      <KeyEvent><Makecode>65</Makecode><State>1</State></KeyEvent>
+      <KeyEvent><Makecode>30</Makecode><State>1</State></KeyEvent>
     </MacroEvent>
     <MacroEvent><Type>0</Type><Number>0.010</Number></MacroEvent>
     <MacroEvent>
       <Type>2</Type>
       <Id>2</Id>
-      <MouseEvent><MouseButton>0</MouseButton><State>0</State></MouseEvent>
+      <MouseEvent><MouseButton>1</MouseButton><State>0</State></MouseEvent>
     </MacroEvent>
     <MacroEvent>
       <Type>2</Type>
       <Id>2</Id>
-      <MouseEvent><MouseButton>0</MouseButton><State>1</State></MouseEvent>
+      <MouseEvent><MouseButton>1</MouseButton><State>1</State></MouseEvent>
     </MacroEvent>
   </MacroEvents>
 </Macro>

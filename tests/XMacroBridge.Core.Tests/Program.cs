@@ -24,6 +24,10 @@ var tests = new (string Name, Action Run)[]
     ("Razer XML malformed event preserves surrounding events", RazerXmlMalformedEventPreservesSurroundingEvents),
     ("Razer delay precision loss is diagnosed", RazerDelayPrecisionLossIsDiagnosed),
     ("Razer XML Type 6 millisecond delay imports", RazerXmlType6MillisecondDelayImports),
+    ("Razer XML Type 6 loop expands for XMBC and Razer", RazerXmlType6LoopExpandsForBothExports),
+    ("Razer XML nested loops expand safely", RazerXmlNestedLoopsExpandSafely),
+    ("Razer XML malformed loops are rejected", RazerXmlMalformedLoopsAreRejected),
+    ("Razer XML loop expansion respects limits", RazerXmlLoopExpansionRespectsLimits),
     ("XMBC text fixture imports safely", XmbcTextFixtureImportsSafely),
     ("XMBC unknown token is preserved as error", XmbcUnknownTokenIsPreservedAsError),
     ("Unknown-event validation does not expose raw payload", UnknownEventValidationDoesNotExposeRawPayload),
@@ -38,6 +42,7 @@ var tests = new (string Name, Action Run)[]
     ("Synapse4 malformed event is preserved", Synapse4MalformedEventIsPreserved),
     ("Synapse4 malformed known event preserves surrounding events", Synapse4MalformedKnownEventPreservesSurroundingEvents),
     ("Synapse4 Type 6 millisecond delay imports", Synapse4Type6MillisecondDelayImports),
+    ("Synapse4 Type 6 loop expands", Synapse4Type6LoopExpands),
     ("UTF BOM encodings import consistently", UtfBomEncodingsImportConsistently),
     ("XML importers enforce supported encoding policy", XmlImportersEnforceSupportedEncodingPolicy),
     ("Format diagnostics sanitize source paths", FormatDiagnosticsSanitizeSourcePaths),
@@ -48,6 +53,7 @@ var tests = new (string Name, Action Run)[]
     ("XMBC text export round trips", XmbcTextExportRoundTrips),
     ("XMBC text export rejects invalid key", XmbcTextExportRejectsInvalidKey),
     ("Razer XML export round trips", RazerXmlExportRoundTrips),
+    ("Razer XML export uses Synapse 4 input codes", RazerXmlExportUsesSynapse4InputCodes),
     ("Razer XML export rejects unsupported mouse", RazerXmlExportRejectsUnsupportedMouse),
     ("XMBC modifiers apply to next key", XmbcModifiersApplyToNextKey),
     ("XMBC HOLDMS applies to next key", XmbcHoldMsAppliesToNextKey),
@@ -269,6 +275,128 @@ static void RazerXmlType6MillisecondDelayImports()
         "Type 6 delay changed during Razer XML export round trip.");
 }
 
+static void RazerXmlType6LoopExpandsForBothExports()
+{
+    const string xml = """
+        <Macro><Name>Loop Five</Name><MacroEvents>
+          <MacroEvent><Type>6</Type><Number>5</Number><LoopEvent><State>0</State></LoopEvent></MacroEvent>
+          <MacroEvent><Type>6</Type><Delay>10</Delay></MacroEvent>
+          <MacroEvent><Type>6</Type><Number>5</Number><LoopEvent><State>1</State></LoopEvent></MacroEvent>
+        </MacroEvents></Macro>
+        """;
+    using var input = new MemoryStream(Encoding.UTF8.GetBytes(xml));
+    var result = new RazerMacroXmlImporter().ImportAsync(input, "loop-five.xml").GetAwaiter().GetResult();
+    var document = result.Documents.Single();
+
+    Assert(result.Diagnostics.All(item => item.Severity != DiagnosticSeverity.Error), "A valid Razer loop produced an import error.");
+    Assert(document.Events.Count == 5, "A five-count loop did not expand to five body copies.");
+    Assert(document.Events.All(item => item is DelayMacroEvent { Milliseconds: 10 }), "Expanded loop body changed semantics.");
+    Assert(document.Events.Select(item => item.Sequence).SequenceEqual(Enumerable.Range(0, 5).Select(value => (long)value)), "Expanded loop sequences are not continuous.");
+    Assert(document.Events.All(item => item.GetType().Name != "RazerLoopBoundaryEvent"), "Loop boundary leaked into the unified model.");
+
+    using var xmbcOutput = new MemoryStream();
+    var xmbcDiagnostics = new XmbcMacroTextExporter().ExportAsync(document, xmbcOutput).GetAwaiter().GetResult();
+    var xmbcText = Encoding.UTF8.GetString(xmbcOutput.ToArray());
+    Assert(xmbcDiagnostics.All(item => item.Severity != DiagnosticSeverity.Error), "Expanded loop failed XMBC export.");
+    Assert(xmbcText.Split("{WAITMS:10}", StringSplitOptions.None).Length - 1 == 5, "XMBC output does not contain five loop-body copies.");
+
+    using var razerOutput = new MemoryStream();
+    var razerDiagnostics = new RazerMacroXmlExporter().ExportAsync(document, razerOutput).GetAwaiter().GetResult();
+    Assert(razerDiagnostics.All(item => item.Severity != DiagnosticSeverity.Error), "Expanded loop failed Razer export.");
+    razerOutput.Position = 0;
+    var roundTrip = new RazerMacroXmlImporter().ImportAsync(razerOutput, "loop-roundtrip.xml").GetAwaiter().GetResult();
+    Assert(EventSignatures(roundTrip.Documents.Single()).SequenceEqual(EventSignatures(document)), "Linear Razer round trip changed the expanded loop.");
+
+    const string warningXml = """
+        <Macro><Name>Loop Warning</Name><MacroEvents>
+          <MacroEvent><Type>6</Type><Number>2</Number><LoopEvent><State>0</State></LoopEvent></MacroEvent>
+          <MacroEvent><Type>0</Type><Number>0.0005</Number></MacroEvent>
+          <MacroEvent><Type>6</Type><Number>2</Number><LoopEvent><State>1</State></LoopEvent></MacroEvent>
+        </MacroEvents></Macro>
+        """;
+    using var warningInput = new MemoryStream(Encoding.UTF8.GetBytes(warningXml));
+    var warningResult = new RazerMacroXmlImporter().ImportAsync(warningInput, "loop-warning.xml").GetAwaiter().GetResult();
+    Assert(
+        warningResult.Diagnostics.Where(item => item.Code == "RAZER_DELAY_PRECISION_LOSS").Select(item => item.EventSequence).SequenceEqual(new long?[] { 0, 1 }),
+        "Diagnostics inside an expanded loop were not remapped to every output event.");
+}
+
+static void RazerXmlNestedLoopsExpandSafely()
+{
+    const string xml = """
+        <Macro><Name>Nested Loop</Name><MacroEvents>
+          <MacroEvent><Type>6</Type><Number>2</Number><LoopEvent><State>0</State></LoopEvent></MacroEvent>
+          <MacroEvent><Type>6</Type><Delay>1</Delay></MacroEvent>
+          <MacroEvent><Type>6</Type><Number>3</Number><LoopEvent><State>0</State></LoopEvent></MacroEvent>
+          <MacroEvent><Type>6</Type><Delay>2</Delay></MacroEvent>
+          <MacroEvent><Type>6</Type><Number>3</Number><LoopEvent><State>1</State></LoopEvent></MacroEvent>
+          <MacroEvent><Type>6</Type><Number>2</Number><LoopEvent><State>1</State></LoopEvent></MacroEvent>
+        </MacroEvents></Macro>
+        """;
+    using var input = new MemoryStream(Encoding.UTF8.GetBytes(xml));
+    var result = new RazerMacroXmlImporter().ImportAsync(input, "nested-loop.xml").GetAwaiter().GetResult();
+
+    Assert(result.Diagnostics.All(item => item.Severity != DiagnosticSeverity.Error), "Valid nested loops produced an error.");
+    Assert(
+        result.Documents.Single().Events.Cast<DelayMacroEvent>().Select(item => item.Milliseconds).SequenceEqual([1L, 2L, 2L, 2L, 1L, 2L, 2L, 2L]),
+        "Nested loop expansion order or count is incorrect.");
+
+    using var depthInput = new MemoryStream(Encoding.UTF8.GetBytes(xml));
+    var depthResult = new RazerMacroXmlImporter(new MacroLimits(MaximumNestingDepth: 1))
+        .ImportAsync(depthInput, "nested-loop.xml").GetAwaiter().GetResult();
+    Assert(depthResult.Diagnostics.Any(item => item.Code == "RAZER_LOOP_DEPTH_LIMIT" && item.Severity == DiagnosticSeverity.Error), "Loop nesting depth limit was not enforced.");
+    Assert(depthResult.Documents.Single().Events.OfType<UnknownMacroEvent>().Any(), "Rejected nested loop did not remain visibly blocked.");
+}
+
+static void RazerXmlMalformedLoopsAreRejected()
+{
+    var cases = new[]
+    {
+        ("missing-start", "<MacroEvent><Type>6</Type><Number>5</Number><LoopEvent><State>1</State></LoopEvent></MacroEvent>"),
+        ("missing-end", "<MacroEvent><Type>6</Type><Number>5</Number><LoopEvent><State>0</State></LoopEvent></MacroEvent>"),
+        ("mismatch", "<MacroEvent><Type>6</Type><Number>5</Number><LoopEvent><State>0</State></LoopEvent></MacroEvent><MacroEvent><Type>6</Type><Delay>1</Delay></MacroEvent><MacroEvent><Type>6</Type><Number>4</Number><LoopEvent><State>1</State></LoopEvent></MacroEvent>"),
+        ("zero", "<MacroEvent><Type>6</Type><Number>0</Number><LoopEvent><State>0</State></LoopEvent></MacroEvent><MacroEvent><Type>6</Type><Number>0</Number><LoopEvent><State>1</State></LoopEvent></MacroEvent>"),
+    };
+
+    foreach (var (name, events) in cases)
+    {
+        var xml = $"<Macro><Name>{name}</Name><MacroEvents>{events}</MacroEvents></Macro>";
+        using var input = new MemoryStream(Encoding.UTF8.GetBytes(xml));
+        var result = new RazerMacroXmlImporter().ImportAsync(input, name + ".xml").GetAwaiter().GetResult();
+        Assert(result.Diagnostics.Any(item => item.Severity == DiagnosticSeverity.Error), $"Malformed loop case {name} was not rejected.");
+        Assert(result.Documents.Single().Events.OfType<UnknownMacroEvent>().Any(), $"Malformed loop case {name} did not stay visibly blocked.");
+    }
+}
+
+static void RazerXmlLoopExpansionRespectsLimits()
+{
+    const string xml = """
+        <Macro><Name>Expansion Limit</Name><MacroEvents>
+          <MacroEvent><Type>6</Type><Number>5</Number><LoopEvent><State>0</State></LoopEvent></MacroEvent>
+          <MacroEvent><Type>6</Type><Delay>1</Delay></MacroEvent>
+          <MacroEvent><Type>6</Type><Number>5</Number><LoopEvent><State>1</State></LoopEvent></MacroEvent>
+        </MacroEvents></Macro>
+        """;
+    using var input = new MemoryStream(Encoding.UTF8.GetBytes(xml));
+    var result = new RazerMacroXmlImporter(new MacroLimits(MaximumEventsPerMacro: 4))
+        .ImportAsync(input, "expansion-limit.xml").GetAwaiter().GetResult();
+
+    Assert(result.Diagnostics.Any(item => item.Code == "RAZER_LOOP_EXPANSION_LIMIT" && item.Severity == DiagnosticSeverity.Error), "Loop expansion event limit was not enforced.");
+    Assert(result.Documents.Single().Events.Count <= 4, "Rejected loop expansion exceeded the configured event limit.");
+    Assert(result.Documents.Single().Events.OfType<UnknownMacroEvent>().Any(), "Rejected loop expansion did not remain visibly blocked.");
+
+    const string emptyLoopXml = """
+        <Macro><Name>Empty Loop</Name><MacroEvents>
+          <MacroEvent><Type>6</Type><Number>2147483647</Number><LoopEvent><State>0</State></LoopEvent></MacroEvent>
+          <MacroEvent><Type>6</Type><Number>2147483647</Number><LoopEvent><State>1</State></LoopEvent></MacroEvent>
+        </MacroEvents></Macro>
+        """;
+    using var emptyLoopInput = new MemoryStream(Encoding.UTF8.GetBytes(emptyLoopXml));
+    var emptyLoopResult = new RazerMacroXmlImporter().ImportAsync(emptyLoopInput, "empty-loop.xml").GetAwaiter().GetResult();
+    Assert(emptyLoopResult.Diagnostics.All(item => item.Severity != DiagnosticSeverity.Error), "A valid empty loop produced an error.");
+    Assert(emptyLoopResult.Documents.Single().Events.Count == 0, "An empty loop did not collapse to an empty linear sequence.");
+}
+
 static void XmbcTextFixtureImportsSafely()
 {
     var fixturePath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "basic-key-delay.txt");
@@ -456,6 +584,26 @@ static void Synapse4Type6MillisecondDelayImports()
     Assert(
         result.Documents.Single().Events.Single() is DelayMacroEvent { Milliseconds: 265 },
         "Synapse4 Type 6 Delay was not imported as an integer millisecond delay.");
+}
+
+static void Synapse4Type6LoopExpands()
+{
+    const string inner = """
+        {"guid":"99999999-9999-9999-9999-999999999999","macroEvents":[
+          {"Type":6,"Number":5,"LoopEvent":{"State":0}},
+          {"Type":6,"Delay":7},
+          {"Type":6,"Number":5,"LoopEvent":{"State":1}}
+        ]}
+        """;
+    var payload = Convert.ToBase64String(Encoding.UTF8.GetBytes(inner));
+    var package = $"{{\"macros\":[{{\"name\":\"Synapse Loop\",\"payload\":\"{payload}\",\"hash\":\"ignored\"}}]}}";
+    using var input = new MemoryStream(Encoding.UTF8.GetBytes(package));
+    var result = new Synapse4Importer().ImportAsync(input, "loop.synapse4").GetAwaiter().GetResult();
+
+    Assert(result.Diagnostics.All(item => item.Severity != DiagnosticSeverity.Error), "A valid Synapse4 loop produced an import error.");
+    Assert(result.Documents.Single().Events.Count == 5, "Synapse4 loop did not expand to five body copies.");
+    Assert(result.Documents.Single().Events.All(item => item is DelayMacroEvent { Milliseconds: 7 }), "Synapse4 loop body changed during expansion.");
+    Assert(result.Documents.Single().Events.Select(item => item.Sequence).SequenceEqual(Enumerable.Range(0, 5).Select(value => (long)value)), "Synapse4 expanded sequences are not continuous.");
 }
 
 static void UtfBomEncodingsImportConsistently()
@@ -709,6 +857,32 @@ static void RazerXmlExportRoundTrips()
     var imported = new RazerMacroXmlImporter().ImportAsync(output, "roundtrip.xml").GetAwaiter().GetResult();
     Assert(imported.Documents.Single().Name == "往返测试", "Razer macro name changed.");
     Assert(EventSignatures(imported.Documents.Single()).SequenceEqual(EventSignatures(original)), "Razer round trip changed events.");
+}
+
+static void RazerXmlExportUsesSynapse4InputCodes()
+{
+    var document = CreateDocument(
+        new KeyMacroEvent(0, 69, InputTransition.Down),
+        new KeyMacroEvent(1, 69, InputTransition.Up),
+        new KeyMacroEvent(2, 87, InputTransition.Down),
+        new KeyMacroEvent(3, 87, InputTransition.Up),
+        new MouseMacroEvent(4, MouseButton.Left, InputTransition.Down),
+        new MouseMacroEvent(5, MouseButton.Left, InputTransition.Up),
+        new MouseMacroEvent(6, MouseButton.Right, InputTransition.Down),
+        new MouseMacroEvent(7, MouseButton.Right, InputTransition.Up));
+    using var output = new MemoryStream();
+    var diagnostics = new RazerMacroXmlExporter().ExportAsync(document, output).GetAwaiter().GetResult();
+
+    Assert(diagnostics.All(item => item.Severity != DiagnosticSeverity.Error), "Synapse 4 code export should succeed.");
+    var xml = Encoding.UTF8.GetString(output.ToArray());
+    Assert(xml.Contains("<Makecode>18</Makecode>", StringComparison.Ordinal), "E must use scan code 18 instead of virtual-key code 69.");
+    Assert(xml.Contains("<Makecode>17</Makecode>", StringComparison.Ordinal), "W must use scan code 17 instead of virtual-key code 87.");
+    Assert(xml.Contains("<MouseButton>1</MouseButton>", StringComparison.Ordinal), "Left mouse must use Synapse 4 button code 1.");
+    Assert(xml.Contains("<MouseButton>2</MouseButton>", StringComparison.Ordinal), "Right mouse must use Synapse 4 button code 2.");
+    Assert(xml.Contains("<mmtSetting>0</mmtSetting>", StringComparison.Ordinal), "Synapse 4 action bar metadata is missing.");
+    Assert(xml.Contains("<DelaySetting>0</DelaySetting>", StringComparison.Ordinal), "Synapse 4 delay metadata is missing.");
+    Assert(xml.Contains("<Version>4</Version>", StringComparison.Ordinal), "Synapse 4 version metadata is missing.");
+    Assert(xml.Contains("<MouseMoveType>none</MouseMoveType>", StringComparison.Ordinal), "Synapse 4 mouse movement metadata is missing.");
 }
 
 static void RazerXmlExportRejectsUnsupportedMouse()

@@ -1,54 +1,485 @@
 <Window x:Class="XMacroBridge.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        xmlns:local="clr-namespace:XMacroBridge.App"
         xmlns:accessibility="clr-namespace:XMacroBridge.App.Accessibility"
-        Title="XMacro Bridge"
-        Width="1280"
-        Height="820"
+        xmlns:workspace="clr-namespace:XMacroBridge.Presentation.Workspace;assembly=XMacroBridge.Presentation"
+        xmlns:diagnostics="clr-namespace:XMacroBridge.Core.Diagnostics;assembly=XMacroBridge.Core"
+        Title="RAZER XMACRO BRIDGE"
+        Icon="Assets/XMacroBridge.ico"
+        Width="1265"
+        Height="813"
         MinWidth="900"
         MinHeight="500"
+        WindowStyle="None"
+        ResizeMode="CanResize"
         WindowStartupLocation="CenterScreen"
-        Background="{DynamicResource PageBrush}"
+        Background="{DynamicResource WindowBackgroundBrush}"
         AllowDrop="True"
+        Loaded="Window_Loaded"
+        StateChanged="Window_StateChanged"
+        PreviewKeyDown="Window_PreviewKeyDown"
         Closing="Window_Closing"
         DragOver="Window_DragOver"
         Drop="Window_Drop">
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="40"
+                           ResizeBorderThickness="6"
+                           GlassFrameThickness="0"
+                           CornerRadius="0"
+                           UseAeroCaptionButtons="False" />
+    </shell:WindowChrome.WindowChrome>
     <Window.Resources>
         <accessibility:SafeAutomationNameConverter x:Key="SafeAutomationNameConverter" />
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+        <Geometry x:Key="MinimizeWindowGeometry">M2,8 H14</Geometry>
+        <Geometry x:Key="MaximizeWindowGeometry">M3,3 H13 V13 H3 Z</Geometry>
+        <Geometry x:Key="RestoreWindowGeometry">M5,2 H14 V11 H12 V4 H5 Z M2,5 H11 V14 H2 Z</Geometry>
+        <Geometry x:Key="CloseWindowGeometry">M3,3 L13,13 M13,3 L3,13</Geometry>
+
+        <Style x:Key="WindowCaptionButtonStyle" TargetType="Button">
+            <Setter Property="Width" Value="46" />
+            <Setter Property="Height" Value="40" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+            <Setter Property="Cursor" Value="Arrow" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="IsTabStop" Value="False" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="CaptionButtonBorder" Background="{TemplateBinding Background}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="CaptionButtonBorder" Property="Background" Value="{DynamicResource ControlBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="CaptionButtonBorder" Property="Background" Value="{DynamicResource StrongBorderBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="WindowCloseButtonStyle" TargetType="Button" BasedOn="{StaticResource WindowCaptionButtonStyle}">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="CloseButtonBorder" Background="{TemplateBinding Background}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="CloseButtonBorder" Property="Background" Value="{DynamicResource WindowCloseHoverBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="CloseButtonBorder" Property="Background" Value="{DynamicResource WindowClosePressedBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="MacroListItemStyle" TargetType="ListBoxItem">
+            <Setter Property="MinHeight" Value="42" />
+            <Setter Property="Margin" Value="0,0,0,3" />
+            <Setter Property="Padding" Value="12,7" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="AutomationProperties.Name"
+                    Value="{Binding Name, Converter={StaticResource SafeAutomationNameConverter}, ConverterParameter=宏}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="ItemBorder"
+                                Padding="{TemplateBinding Padding}"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="Transparent"
+                                BorderThickness="3,0,1,0"
+                                CornerRadius="2">
+                            <ContentPresenter />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource RowHoverBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource SelectedGreenMutedBrush}" />
+                                <Setter TargetName="ItemBorder" Property="BorderBrush" Value="{DynamicResource RazerGreenBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="ItemBorder" Property="BorderBrush" Value="{DynamicResource RazerGreenBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="TimelineHeaderStyle" TargetType="DataGridColumnHeader">
+            <Setter Property="Height" Value="30" />
+            <Setter Property="Padding" Value="8,0" />
+            <Setter Property="Background" Value="{DynamicResource ToolbarSectionBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="Normal" />
+        </Style>
+
+        <Style x:Key="TimelineCellStyle" TargetType="DataGridCell">
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="IsTabStop" Value="False" />
+        </Style>
+
+        <Style x:Key="TimelineRowStyle" TargetType="DataGridRow">
+            <Setter Property="Height" Value="42" />
+            <Setter Property="Background" Value="{DynamicResource PanelBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="AutomationProperties.Name" Value="{Binding AutomationSummary}" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource RowHoverBrush}" />
+                    <Setter Property="BorderBrush" Value="{DynamicResource RazerGreenBrush}" />
+                </Trigger>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource SelectedGreenMutedBrush}" />
+                    <Setter Property="BorderBrush" Value="{DynamicResource RazerGreenBrush}" />
+                </Trigger>
+                <MultiTrigger>
+                    <MultiTrigger.Conditions>
+                        <Condition Property="IsSelected" Value="True" />
+                        <Condition Property="IsMouseOver" Value="True" />
+                    </MultiTrigger.Conditions>
+                    <Setter Property="BorderBrush" Value="{DynamicResource RazerGreenBrush}" />
+                </MultiTrigger>
+                <Trigger Property="Tag" Value="TimelineInsertBefore">
+                    <Setter Property="BorderBrush" Value="{DynamicResource RazerGreenBrush}" />
+                    <Setter Property="BorderThickness" Value="0,2,0,0" />
+                </Trigger>
+                <Trigger Property="Tag" Value="TimelineInsertAfter">
+                    <Setter Property="BorderBrush" Value="{DynamicResource RazerGreenBrush}" />
+                    <Setter Property="BorderThickness" Value="0,0,0,2" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="EventIconPathStyle" TargetType="Path" BasedOn="{StaticResource TablerIconPathStyle}">
+            <Setter Property="Stroke" Value="{DynamicResource InfoBrush}" />
+            <Setter Property="Data" Value="{DynamicResource InfoIconGeometry}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding VisualKind}" Value="{x:Static workspace:MacroEventVisualKind.Keyboard}">
+                    <Setter Property="Stroke" Value="{DynamicResource RazerGreenBrush}" />
+                    <Setter Property="Data" Value="{DynamicResource KeyboardIconGeometry}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding VisualKind}" Value="{x:Static workspace:MacroEventVisualKind.Mouse}">
+                    <Setter Property="Stroke" Value="{DynamicResource MouseEventBrush}" />
+                    <Setter Property="Data" Value="{DynamicResource MouseIconGeometry}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding VisualKind}" Value="{x:Static workspace:MacroEventVisualKind.Delay}">
+                    <Setter Property="Stroke" Value="{DynamicResource DelayEventBrush}" />
+                    <Setter Property="Data" Value="{DynamicResource ClockIconGeometry}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding VisualKind}" Value="{x:Static workspace:MacroEventVisualKind.Warning}">
+                    <Setter Property="Stroke" Value="{DynamicResource WarningBrush}" />
+                    <Setter Property="Data" Value="{DynamicResource WarningIconGeometry}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding VisualKind}" Value="{x:Static workspace:MacroEventVisualKind.Error}">
+                    <Setter Property="Stroke" Value="{DynamicResource ErrorBrush}" />
+                    <Setter Property="Data" Value="{DynamicResource ErrorIconGeometry}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="TimelineCopyIconStyle" TargetType="Path" BasedOn="{StaticResource TablerIconPathStyle}">
+            <Setter Property="Data" Value="{DynamicResource CopyIconGeometry}" />
+            <Setter Property="Stroke" Value="{DynamicResource TextPrimaryBrush}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=Button}}" Value="True">
+                    <Setter Property="Stroke" Value="{DynamicResource RazerGreenBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsEnabled, RelativeSource={RelativeSource AncestorType=Button}}" Value="False">
+                    <Setter Property="Stroke" Value="{DynamicResource TextDisabledBrush}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="TimelineDeleteIconStyle" TargetType="Path" BasedOn="{StaticResource TablerIconPathStyle}">
+            <Setter Property="Data" Value="{DynamicResource DeleteIconGeometry}" />
+            <Setter Property="Stroke" Value="{DynamicResource TextPrimaryBrush}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=Button}}" Value="True">
+                    <Setter Property="Stroke" Value="{DynamicResource ErrorBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsEnabled, RelativeSource={RelativeSource AncestorType=Button}}" Value="False">
+                    <Setter Property="Stroke" Value="{DynamicResource TextDisabledBrush}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="TimelineDragIconStyle" TargetType="Path" BasedOn="{StaticResource TablerIconPathStyle}">
+            <Setter Property="Data" Value="{DynamicResource DragHandleGeometry}" />
+            <Setter Property="Stroke" Value="{DynamicResource TextSecondaryBrush}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=Border}}" Value="True">
+                    <Setter Property="Stroke" Value="{DynamicResource RazerGreenBrush}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="TimelineEditorLabelStyle" TargetType="TextBlock">
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding VisualKind}" Value="{x:Static workspace:MacroEventVisualKind.Delay}">
+                    <Setter Property="Foreground" Value="{DynamicResource DelayTextBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding VisualKind}" Value="{x:Static workspace:MacroEventVisualKind.Warning}">
+                    <Setter Property="Foreground" Value="{DynamicResource WarningBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding VisualKind}" Value="{x:Static workspace:MacroEventVisualKind.Error}">
+                    <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="TimelineSelectionCheckBoxStyle" TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=DataGridRow}}" Value="True">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=DataGridRow}}" Value="True">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="TimelineHoverPanelStyle" TargetType="StackPanel">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=DataGridRow}}" Value="True">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="TimelineInlineButtonStyle" TargetType="Button" BasedOn="{StaticResource BaseButtonStyle}">
+            <Setter Property="Width" Value="28" />
+            <Setter Property="Height" Value="28" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Padding" Value="5" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+        </Style>
     </Window.Resources>
-    <Grid Margin="24">
+
+    <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="16" />
+            <RowDefinition Height="40" />
+            <RowDefinition Height="74" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <Grid Grid.Row="0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <StackPanel>
-                <TextBlock FontFamily="Segoe UI Variable Display, Microsoft YaHei UI"
-                           FontSize="28"
-                           FontWeight="SemiBold"
-                           Text="XMacro Bridge" />
-                <TextBlock Margin="0,4,0,0"
-                           Foreground="{DynamicResource TextSecondaryBrush}"
-                           FontSize="13"
-                           Text="雷云 4 与 X-Mouse 宏的离线、安全转换工作区" />
+        <Border Grid.Row="0"
+                Background="{DynamicResource NavigationBrush}"
+                BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="0,0,0,1"
+                SnapsToDevicePixels="True"
+                UseLayoutRounding="True">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="46" />
+                    <ColumnDefinition Width="46" />
+                    <ColumnDefinition Width="46" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Margin="14,0,18,0" VerticalAlignment="Center" Orientation="Horizontal">
+                <Image x:Name="BrandNavigationLogo" Width="20" Height="20"
+                       IsHitTestVisible="False"
+                       AutomationProperties.Name=""
+                       RenderOptions.BitmapScalingMode="HighQuality"
+                           Source="Assets/XMacroBridgeLogo.png" />
+                    <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="13" FontWeight="SemiBold" Text="XMACRO BRIDGE" />
+                </StackPanel>
+                <Button x:Name="MacroNavigationButton" Grid.Column="1"
+                        shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                        AutomationProperties.Name="宏转换"
+                        Click="MacroNavigation_Click"
+                        Style="{StaticResource NavButtonStyle}"
+                        Tag="Active">
+                    <StackPanel VerticalAlignment="Center" Orientation="Horizontal">
+                        <Path Data="{DynamicResource KeyboardIconGeometry}"
+                              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                              Style="{StaticResource TablerIconPathStyle}" />
+                        <TextBlock Margin="7,0,0,0"
+                                   VerticalAlignment="Center"
+                                   Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                   Text="宏转换" />
+                    </StackPanel>
+                </Button>
+                <Button x:Name="LibraryNavigationButton" Grid.Column="2"
+                        shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                        AutomationProperties.Name="宏库"
+                        Click="LibraryNavigation_Click"
+                        Style="{StaticResource NavButtonStyle}">
+                    <StackPanel VerticalAlignment="Center" Orientation="Horizontal">
+                        <Path Data="{DynamicResource StackIconGeometry}"
+                              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                              Style="{StaticResource TablerIconPathStyle}" />
+                        <TextBlock Margin="7,0,0,0"
+                                   VerticalAlignment="Center"
+                                   Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                   Text="宏库" />
+                    </StackPanel>
+                </Button>
+                <Button x:Name="SettingsNavigationButton" Grid.Column="3"
+                        shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                        AutomationProperties.Name="设置"
+                        Click="SettingsNavigation_Click"
+                        Style="{StaticResource NavButtonStyle}">
+                    <StackPanel VerticalAlignment="Center" Orientation="Horizontal">
+                        <Path Data="{DynamicResource SettingsIconGeometry}"
+                              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                              Style="{StaticResource TablerIconPathStyle}" />
+                        <TextBlock Margin="7,0,0,0"
+                                   VerticalAlignment="Center"
+                                   Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                   Text="设置" />
+                    </StackPanel>
+                </Button>
+                <Button x:Name="WindowMinimizeButton" Grid.Column="5"
+                        shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                        AutomationProperties.Name="最小化窗口"
+                        Click="WindowMinimize_Click"
+                        Style="{StaticResource WindowCaptionButtonStyle}"
+                        ToolTip="最小化">
+                    <Path Width="16" Height="16" Data="{StaticResource MinimizeWindowGeometry}" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1" />
+                </Button>
+                <Button x:Name="WindowMaximizeRestoreButton" Grid.Column="6"
+                        shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                        AutomationProperties.Name="最大化或还原窗口"
+                        Click="WindowMaximizeRestore_Click"
+                        Style="{StaticResource WindowCaptionButtonStyle}"
+                        ToolTip="最大化">
+                    <Path x:Name="WindowMaximizeRestoreIcon" Width="16" Height="16" Data="{StaticResource MaximizeWindowGeometry}" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1" />
+                </Button>
+                <Button x:Name="WindowCloseButton" Grid.Column="7"
+                        shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                        AutomationProperties.Name="关闭窗口"
+                        Click="WindowClose_Click"
+                        Style="{StaticResource WindowCloseButtonStyle}"
+                        ToolTip="关闭">
+                    <Path Width="16" Height="16" Data="{StaticResource CloseWindowGeometry}" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1" />
+                </Button>
+            </Grid>
+        </Border>
+
+        <Border x:Name="WorkspaceToolbar" Grid.Row="1" Background="{DynamicResource ToolbarBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
+            <Grid Margin="20,8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock FontSize="17" FontWeight="SemiBold" Text="宏转换工作区" />
+                    <TextBlock Margin="0,3,0,0" Style="{StaticResource CaptionStyle}" Text="雷云 4 与 X-Mouse 宏的离线、安全转换工作区" />
+                </StackPanel>
+                <Grid Grid.Column="1" VerticalAlignment="Center">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="15" />
+                        <RowDefinition Height="3" />
+                        <RowDefinition Height="32" />
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="160" />
+                        <ColumnDefinition Width="10" />
+                        <ColumnDefinition Width="160" />
+                        <ColumnDefinition Width="10" />
+                        <ColumnDefinition Width="104" />
+                        <ColumnDefinition Width="8" />
+                        <ColumnDefinition Width="104" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="CurrentMacroLabel" Grid.Row="0" HorizontalAlignment="Center"
+                               Style="{StaticResource CaptionStyle}" Text="当前宏" />
+                    <Border x:Name="CurrentMacroValueHost" Grid.Row="2" Height="32" Padding="9,4"
+                            Background="{DynamicResource ControlBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="3">
+                        <TextBlock x:Name="CurrentMacroValueText" MaxWidth="140"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   FontWeight="SemiBold" TextAlignment="Center"
+                                   Text="{Binding SelectedMacro.Name, TargetNullValue=尚未选择宏}"
+                                   TextTrimming="CharacterEllipsis" ToolTip="{Binding SelectedMacro.Name}" />
+                    </Border>
+                    <TextBlock x:Name="TargetFormatLabel" Grid.Row="0" Grid.Column="2" HorizontalAlignment="Center"
+                               Style="{StaticResource CaptionStyle}" Text="目标格式" />
+                    <ComboBox x:Name="TargetFormatSelector" Grid.Row="2" Grid.Column="2"
+                              HorizontalContentAlignment="Center"
+                              AutomationProperties.Name="目标导出格式" TabIndex="4"
+                              ItemsSource="{Binding ExportFormats}" DisplayMemberPath="DisplayName" SelectedValuePath="FormatId"
+                              SelectedValue="{Binding TargetFormatId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                    <Button x:Name="ExportButton" Grid.Row="2" Grid.Column="4" MinWidth="112"
+                            AutomationProperties.Name="安全导出当前宏" TabIndex="5"
+                            Click="Export_Click" Content="安全导出" IsEnabled="{Binding CanExport}"
+                             Style="{StaticResource PrimaryButtonStyle}" ToolTip="{Binding ExportAvailabilityText}" />
+                    <Button x:Name="SaveToLibraryButton" Grid.Row="2" Grid.Column="6" MinWidth="112"
+                            AutomationProperties.Name="保存当前宏到宏库" TabIndex="6"
+                            Click="SaveToLibrary_Click" Content="保存到宏库" IsEnabled="{Binding CanExport}"
+                            Style="{StaticResource SecondaryButtonStyle}" ToolTip="使用当前目标格式保存到宏库" />
+                </Grid>
+            </Grid>
+        </Border>
+
+        <Border x:Name="LibraryToolbar" Grid.Row="1" Visibility="Collapsed"
+                Background="{DynamicResource ToolbarBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1"
+                DataContext="{Binding ElementName=MacroLibraryContent, Path=DataContext}">
+            <Grid Margin="20,8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="260" /><ColumnDefinition Width="10" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="8" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="8" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock FontSize="17" FontWeight="SemiBold" Text="宏库" />
+                    <TextBlock Margin="0,3,0,0" AutomationProperties.Name="宏库保存路径" Style="{StaticResource CaptionStyle}" Text="{Binding RootPathDisplay}" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+                <TextBox x:Name="LibrarySearchTextBox" Grid.Column="1" VerticalAlignment="Center" AutomationProperties.Name="搜索宏库"
+                         Tag="搜索宏名称或分组" PreviewKeyDown="LibrarySearchTextBox_PreviewKeyDown"
+                         Style="{StaticResource SearchTextBoxStyle}"
+                         Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged, Delay=200}" />
+                <Button x:Name="RefreshLibraryButton" Grid.Column="3" MinWidth="72" VerticalAlignment="Center" Click="RefreshLibrary_Click" Content="刷新" Style="{StaticResource SecondaryButtonStyle}" />
+                <Button Grid.Column="5" MinWidth="90" VerticalAlignment="Center" Click="OpenLibraryFolder_Click" Content="打开目录" Style="{StaticResource PrimaryButtonStyle}" />
+                <CheckBox Grid.Column="7" VerticalAlignment="Center" Content="按时间排序" IsChecked="{Binding SortByModified, Mode=TwoWay}" />
+            </Grid>
+        </Border>
+
+        <Border x:Name="SettingsToolbar" Grid.Row="1" Visibility="Collapsed"
+                Background="{DynamicResource ToolbarBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
+            <StackPanel Margin="20,8" VerticalAlignment="Center">
+                <TextBlock FontSize="17" FontWeight="SemiBold" Text="设置" />
+                <TextBlock Margin="0,3,0,0" Style="{StaticResource CaptionStyle}" Text="配置宏库路径和本地工作方式" />
             </StackPanel>
-            <Border Grid.Column="1"
-                    Padding="12,7"
-                    VerticalAlignment="Center"
-                    Background="{DynamicResource SuccessSurfaceBrush}"
-                    CornerRadius="12">
-                <TextBlock Foreground="{DynamicResource SuccessSurfaceTextBrush}"
-                           FontSize="12"
-                           FontWeight="SemiBold"
-                           Text="●  本地离线处理" />
-            </Border>
-        </Grid>
+        </Border>
 
         <ScrollViewer x:Name="WorkspaceScrollViewer"
                       Grid.Row="2"
@@ -56,137 +487,71 @@
                       HorizontalContentAlignment="Stretch"
                       HorizontalScrollBarVisibility="Disabled"
                       IsTabStop="False"
-                      VerticalContentAlignment="Stretch"
-                      VerticalScrollBarVisibility="Auto">
-        <Grid Height="{Binding ViewportHeight, ElementName=WorkspaceScrollViewer}"
-              MinWidth="760"
-              MinHeight="620">
+                      VerticalScrollBarVisibility="Auto"
+                      Loaded="WorkspaceScrollViewer_Loaded"
+                      SizeChanged="WorkspaceScrollViewer_SizeChanged"
+                      ScrollChanged="WorkspaceScrollViewer_ScrollChanged">
+        <Grid x:Name="MacroContent"
+              MinWidth="840"
+              MinHeight="600"
+              Margin="12,16">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="286" />
-                <ColumnDefinition Width="16" />
-                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="250" MinWidth="240" />
+                <ColumnDefinition Width="12" />
+                <ColumnDefinition Width="*" MinWidth="578" />
             </Grid.ColumnDefinitions>
 
-            <Border Grid.Column="0" Style="{StaticResource CardStyle}" Padding="18">
+            <Border Grid.Column="0" Padding="14" Style="{StaticResource CardStyle}">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="12" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="8" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="16" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="8" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
-
                     <TextBlock Style="{StaticResource SectionTitleStyle}" Text="导入与宏列表" />
-
                     <Grid Grid.Row="2">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="8" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <Button x:Name="ImportFilesButton"
-                                Grid.Column="0"
-                                AutomationProperties.Name="选择宏文件"
-                                TabIndex="0"
-                                Click="ImportFiles_Click"
-                                Content="选择文件"
-                                IsEnabled="{Binding CanImport}"
-                                Style="{StaticResource PrimaryButtonStyle}" />
-                        <Button x:Name="ImportFolderButton"
-                                Grid.Column="2"
-                                AutomationProperties.Name="选择宏文件夹"
-                                TabIndex="1"
-                                Click="ImportFolder_Click"
-                                Content="选择文件夹"
-                                IsEnabled="{Binding CanImport}"
-                                Style="{StaticResource SecondaryButtonStyle}" />
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="8" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <Button x:Name="ImportFilesButton" Grid.Column="0" AutomationProperties.Name="选择宏文件" TabIndex="0"
+                                Click="ImportFiles_Click" Content="选择文件" IsEnabled="{Binding CanImport}" Style="{StaticResource PrimaryButtonStyle}" />
+                        <Button x:Name="ImportFolderButton" Grid.Column="2" AutomationProperties.Name="选择宏文件夹" TabIndex="1"
+                                Click="ImportFolder_Click" Content="选择文件夹" IsEnabled="{Binding CanImport}" Style="{StaticResource SecondaryButtonStyle}" />
                     </Grid>
-
-                    <Grid Grid.Row="4">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
+                    <Button x:Name="ImportTextButton" Grid.Row="4" AutomationProperties.Name="输入 X-Mouse 宏文本" TabIndex="2"
+                            Click="ImportText_Click" Content="输入宏文本" IsEnabled="{Binding CanImport}" Style="{StaticResource SecondaryButtonStyle}" />
+                    <Grid Grid.Row="6">
                         <TextBlock Style="{StaticResource CaptionStyle}" Text="工作区宏" />
-                        <TextBlock Grid.Column="1"
-                                   Style="{StaticResource CaptionStyle}"
-                                   Text="{Binding MacroCountText}" />
+                        <TextBlock HorizontalAlignment="Right" Style="{StaticResource CaptionStyle}" Text="{Binding MacroCountText}" />
                     </Grid>
-
-                    <ListBox x:Name="MacroList"
-                             Grid.Row="6"
-                             AutomationProperties.Name="工作区宏列表"
-                             Focusable="True"
-                             IsTabStop="True"
-                             KeyboardNavigation.TabNavigation="Once"
-                             TabIndex="2"
-                             ItemsSource="{Binding Macros}"
-                             SelectedItem="{Binding SelectedMacro, Mode=TwoWay}"
-                             Background="Transparent"
-                             BorderThickness="0"
+                    <ListBox x:Name="MacroList" Grid.Row="8" AutomationProperties.Name="工作区宏列表"
+                             TabIndex="3" Focusable="True" IsTabStop="True" KeyboardNavigation.TabNavigation="Once"
+                             PreviewMouseRightButtonDown="MacroList_PreviewMouseRightButtonDown"
+                             ItemsSource="{Binding Macros}" SelectedItem="{Binding SelectedMacro, Mode=TwoWay}"
+                             Background="Transparent" BorderThickness="0" ItemContainerStyle="{StaticResource MacroListItemStyle}"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                        <ListBox.ItemContainerStyle>
-                            <Style TargetType="ListBoxItem">
-                                <Setter Property="Padding" Value="12,10" />
-                                <Setter Property="Margin" Value="0,0,0,6" />
-                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                                <Setter Property="AutomationProperties.Name"
-                                        Value="{Binding Name, Converter={StaticResource SafeAutomationNameConverter}, ConverterParameter=宏}" />
-                                <Setter Property="FocusVisualStyle" Value="{x:Null}" />
-                                <Setter Property="IsTabStop" Value="False" />
-                                <Setter Property="Template">
-                                    <Setter.Value>
-                                        <ControlTemplate TargetType="ListBoxItem">
-                                            <Border x:Name="ItemBorder"
-                                                    Padding="{TemplateBinding Padding}"
-                                                    Background="Transparent"
-                                                    CornerRadius="10">
-                                                <ContentPresenter />
-                                            </Border>
-                                            <ControlTemplate.Triggers>
-                                                <Trigger Property="IsMouseOver" Value="True">
-                                                    <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource SurfaceSecondaryBrush}" />
-                                                </Trigger>
-                                                <Trigger Property="IsSelected" Value="True">
-                                                    <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource SelectionBrush}" />
-                                                    <Setter Property="Foreground" Value="{DynamicResource SelectionTextBrush}" />
-                                                </Trigger>
-                                                <Trigger Property="IsKeyboardFocused" Value="True">
-                                                    <Setter TargetName="ItemBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
-                                                    <Setter TargetName="ItemBorder" Property="BorderThickness" Value="1" />
-                                                </Trigger>
-                                            </ControlTemplate.Triggers>
-                                        </ControlTemplate>
-                                    </Setter.Value>
-                                </Setter>
-                            </Style>
-                        </ListBox.ItemContainerStyle>
+                        <ListBox.ContextMenu>
+                            <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                                <MenuItem AutomationProperties.Name="重命名宏" Header="重命名…" Click="RenameMacro_Click" />
+                                <MenuItem AutomationProperties.Name="修改宏文本" Header="修改宏文本…" Click="ModifyMacroText_Click" />
+                                <MenuItem AutomationProperties.Name="删除宏" Header="删除" Click="DeleteMacro_Click" IsEnabled="{Binding CanDeleteMacro}" Tag="Danger" />
+                            </ContextMenu>
+                        </ListBox.ContextMenu>
                         <ListBox.ItemTemplate>
                             <DataTemplate>
-                                <StackPanel>
-                                    <TextBlock FontSize="13"
-                                               FontWeight="SemiBold"
-                                               Text="{Binding Name}"
-                                               TextTrimming="CharacterEllipsis"
-                                               ToolTip="{Binding Name}" />
-                                    <TextBlock Margin="0,4,0,0"
-                                               FontSize="11"
-                                               Text="{Binding SourceFormat, TargetNullValue=未知来源}">
-                                        <TextBlock.Style>
-                                            <Style TargetType="TextBlock">
-                                                <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
-                                                        <Setter Property="Foreground" Value="{DynamicResource SelectionTextBrush}" />
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </TextBlock.Style>
-                                    </TextBlock>
-                                </StackPanel>
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock FontWeight="SemiBold" Text="{Binding Name}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}" />
+                                        <TextBlock Margin="0,3,0,0" Style="{StaticResource CaptionStyle}" Text="{Binding SourceFormat, TargetNullValue=未知来源}" />
+                                    </StackPanel>
+                                    <Path Grid.Column="1" Width="12" Height="12" Margin="8,0,0,0" VerticalAlignment="Center"
+                                          Data="{DynamicResource ChevronRightIconGeometry}" Style="{StaticResource TablerIconPathStyle}" />
+                                </Grid>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
@@ -195,618 +560,416 @@
 
             <Grid Grid.Column="2">
                 <Grid.RowDefinitions>
+                    <RowDefinition Height="*" MinHeight="300" />
                     <RowDefinition Height="Auto" />
-                    <RowDefinition Height="16" />
-                    <RowDefinition Height="*" />
-                    <RowDefinition Height="16" />
-                    <RowDefinition Height="250" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="38" />
                 </Grid.RowDefinitions>
 
-                <Border Grid.Row="0" Style="{StaticResource CardStyle}" Padding="18,16">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="24" />
-                            <ColumnDefinition Width="240" />
-                            <ColumnDefinition Width="12" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel VerticalAlignment="Center">
-                            <TextBlock Style="{StaticResource CaptionStyle}" Text="当前宏" />
-                            <TextBlock Margin="0,3,0,0"
-                                       FontSize="15"
-                                       FontWeight="SemiBold"
-                                       Text="{Binding SelectedMacro.Name, TargetNullValue=尚未选择宏}"
-                                       TextTrimming="CharacterEllipsis" />
-                            <TextBlock Margin="0,3,0,0"
-                                       Style="{StaticResource CaptionStyle}"
-                                       Text="{Binding SelectedMacroSummary}" />
-                        </StackPanel>
-
-                        <StackPanel Grid.Column="2">
-                            <TextBlock Style="{StaticResource CaptionStyle}" Text="目标格式" />
-                            <Border Margin="0,5,0,0"
-                                    Padding="8,1"
-                                    Background="{DynamicResource SurfaceSecondaryBrush}"
-                                    BorderBrush="{DynamicResource DividerBrush}"
-                                    BorderThickness="1"
-                                    CornerRadius="10">
-                                <ComboBox x:Name="TargetFormatSelector"
-                                          ItemsSource="{Binding ExportFormats}"
-                                          AutomationProperties.Name="目标导出格式"
-                                          TabIndex="3"
-                                          DisplayMemberPath="DisplayName"
-                                          SelectedValuePath="FormatId"
-                                          SelectedValue="{Binding TargetFormatId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                          Background="Transparent"
-                                          BorderThickness="0"
-                                          Padding="3,7" />
-                            </Border>
-                        </StackPanel>
-
-                        <Button x:Name="ExportButton"
-                                Grid.Column="4"
-                                AutomationProperties.Name="安全导出宏"
-                                AutomationProperties.HelpText="只有当前宏通过基础安全检查时才可用"
-                                TabIndex="4"
-                                MinWidth="116"
-                                VerticalAlignment="Bottom"
-                                Click="Export_Click"
-                                Content="安全导出…"
-                                IsEnabled="{Binding CanExport}"
-                                Style="{StaticResource PrimaryButtonStyle}"
-                                ToolTip="{Binding ExportAvailabilityText}" />
-                    </Grid>
-                </Border>
-
-                <Border Grid.Row="2" Style="{StaticResource CardStyle}" Padding="18,14">
+                <Border Grid.Row="0" Style="{StaticResource CardStyle}">
                     <Grid>
                         <Grid.RowDefinitions>
+                            <RowDefinition Height="48" />
                             <RowDefinition Height="Auto" />
-                            <RowDefinition Height="8" />
                             <RowDefinition Height="Auto" />
-                            <RowDefinition Height="6" />
                             <RowDefinition Height="Auto" />
-                            <RowDefinition Height="6" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="6" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="10" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Style="{StaticResource SectionTitleStyle}" Text="事件时间线" />
-                            <TextBlock Grid.Column="1"
-                                        VerticalAlignment="Center"
-                                        Style="{StaticResource CaptionStyle}"
-                                        Text="插入、复制、删除、移动和延时编辑均可撤销" />
+                        <Grid Margin="14,0">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <Grid MinWidth="0" VerticalAlignment="Center">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                <TextBlock Style="{StaticResource SectionTitleStyle}" Text="事件时间线" />
+                                <TextBlock Grid.Column="1" Margin="10,2,0,0" MinWidth="0" VerticalAlignment="Center"
+                                           Style="{StaticResource CaptionStyle}" Text="{Binding SelectedMacroSummary}"
+                                           TextTrimming="CharacterEllipsis" ToolTip="{Binding SelectedMacroSummary}" />
+                            </Grid>
+                            <StackPanel x:Name="EventSearchHost" Grid.Column="1" VerticalAlignment="Center" Orientation="Horizontal"
+                                        Visibility="{Binding HasSelectedMacro, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <TextBox x:Name="EventSearchTextBox" Width="190" AutomationProperties.Name="搜索时间线事件" TabIndex="32"
+                                         MaxLength="128" Tag="搜索事件、序号或详情"
+                                         PreviewKeyDown="EventSearchTextBox_PreviewKeyDown"
+                                         Style="{StaticResource SearchTextBoxStyle}"
+                                         Text="{Binding EventSearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged, Delay=250}" />
+                                <Button x:Name="FindPreviousEventButton" Margin="6,0,0,0" MinWidth="54" AutomationProperties.Name="定位上一个时间线搜索结果"
+                                        TabIndex="33" Click="FindPreviousEvent_Click" Content="上一项" IsEnabled="{Binding CanFindPreviousEvent}" Style="{StaticResource SecondaryButtonStyle}"
+                                        Visibility="{Binding HasEventSearchText, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                <Button x:Name="FindNextEventButton" Margin="6,0,0,0" MinWidth="54" AutomationProperties.Name="定位下一个时间线搜索结果"
+                                        TabIndex="34" Click="FindNextEvent_Click" Content="下一项" IsEnabled="{Binding CanFindNextEvent}" Style="{StaticResource SecondaryButtonStyle}"
+                                        Visibility="{Binding HasEventSearchText, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                <TextBlock x:Name="EventSearchResultTextBlock" Margin="8,0,0,0" MinWidth="54" VerticalAlignment="Center"
+                                           AutomationProperties.Name="时间线搜索结果计数" Style="{StaticResource CaptionStyle}" Text="{Binding EventSearchResultText}"
+                                           Visibility="{Binding HasEventSearchText, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                            </StackPanel>
                         </Grid>
 
-                        <WrapPanel Grid.Row="2" VerticalAlignment="Center">
-                            <TextBlock Margin="0,0,6,0"
-                                       VerticalAlignment="Center"
-                                       Style="{StaticResource CaptionStyle}"
-                                       Text="插入延时" />
-                            <TextBox x:Name="NewDelayMillisecondsTextBox"
-                                     AutomationProperties.Name="新插入延时毫秒"
-                                     AutomationProperties.HelpText="在选中事件之后插入固定延时；未选择事件时追加到末尾"
-                                     TabIndex="6"
-                                     Width="68"
-                                     Height="32"
-                                     Padding="8,5"
-                                     VerticalContentAlignment="Center"
-                                     Background="{DynamicResource SurfaceSecondaryBrush}"
-                                     BorderBrush="{DynamicResource DividerBrush}"
-                                     BorderThickness="1"
-                                     Text="{Binding NewDelayMillisecondsText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                            <TextBlock Margin="4,0,6,0"
-                                       VerticalAlignment="Center"
-                                       Style="{StaticResource CaptionStyle}"
-                                       Text="ms" />
-                            <Button x:Name="InsertDelayButton"
-                                    AutomationProperties.Name="在选中事件之后插入固定延时"
-                                    TabIndex="7"
-                                    Margin="0,0,14,0"
-                                    MinWidth="58"
-                                    Click="InsertDelay_Click"
-                                    Content="插入"
-                                    IsEnabled="{Binding CanInsertDelay}"
-                                    Style="{StaticResource SecondaryButtonStyle}" />
-                            <Button x:Name="CopyEventButton"
-                                    AutomationProperties.Name="复制选中的时间线事件"
-                                    TabIndex="8"
-                                    Margin="0,0,6,0"
-                                    MinWidth="58"
-                                    Click="CopyEvent_Click"
-                                    Content="复制"
-                                    IsEnabled="{Binding CanCopyEvent}"
-                                    Style="{StaticResource SecondaryButtonStyle}" />
-                            <Button x:Name="DeleteEventButton"
-                                    AutomationProperties.Name="删除选中的时间线事件"
-                                    TabIndex="9"
-                                    Margin="0,0,14,0"
-                                    MinWidth="58"
-                                    Click="DeleteEvent_Click"
-                                    Content="删除"
-                                    IsEnabled="{Binding CanDeleteEvent}"
-                                    Style="{StaticResource SecondaryButtonStyle}" />
-                            <Button x:Name="MoveEventUpButton"
-                                    AutomationProperties.Name="向上移动选中的时间线事件"
-                                    TabIndex="10"
-                                    Margin="0,0,6,0"
-                                    MinWidth="58"
-                                    Click="MoveEventUp_Click"
-                                    Content="上移"
-                                    IsEnabled="{Binding CanMoveEventUp}"
-                                    Style="{StaticResource SecondaryButtonStyle}" />
-                            <Button x:Name="MoveEventDownButton"
-                                    AutomationProperties.Name="向下移动选中的时间线事件"
-                                    TabIndex="11"
-                                    MinWidth="58"
-                                    Click="MoveEventDown_Click"
-                                    Content="下移"
-                                    IsEnabled="{Binding CanMoveEventDown}"
-                                    Style="{StaticResource SecondaryButtonStyle}" />
-                        </WrapPanel>
+                        <Border x:Name="TimelineSelectionToolbar" Grid.Row="1" Padding="10,8" Background="{DynamicResource ToolbarSectionBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,1"
+                                Visibility="{Binding HasSelectedMacro, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <WrapPanel ItemHeight="32" VerticalAlignment="Center">
+                                <TextBlock Margin="0,0,5,0" VerticalAlignment="Center" Style="{StaticResource CaptionStyle}" Text="插入延时" />
+                                <TextBox x:Name="NewDelayMillisecondsTextBox" Width="62" AutomationProperties.Name="新插入延时毫秒" TabIndex="12"
+                                         Style="{StaticResource ParameterTextBoxStyle}"
+                                         Text="{Binding NewDelayMillisecondsText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                <TextBlock Margin="5,0,6,0" VerticalAlignment="Center" Style="{StaticResource CaptionStyle}" Text="ms" />
+                                <Button x:Name="InsertDelayButton" MinWidth="48" AutomationProperties.Name="在选中事件之后插入固定延时" TabIndex="13"
+                                        Click="InsertDelay_Click" Content="插入" IsEnabled="{Binding CanInsertDelay}" Style="{StaticResource SecondaryButtonStyle}" />
+                                <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Text="选择事件后可编辑">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock" BasedOn="{StaticResource CaptionStyle}">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                            <Style.Triggers><DataTrigger Binding="{Binding HasSelectedEvents}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                                <TextBlock Margin="12,0,2,0" VerticalAlignment="Center" Foreground="{DynamicResource RazerGreenBrush}"
+                                           Style="{StaticResource TabularNumberTextStyle}" Text="{Binding SelectedEventCountText}"
+                                           Visibility="{Binding HasSelectedEvents, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                <Rectangle Width="1" Height="20" Margin="10,0" VerticalAlignment="Center" Fill="{DynamicResource BorderBrush}"
+                                           Visibility="{Binding HasSelectedEvents, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                <Button x:Name="EditEventButton" MinWidth="54" AutomationProperties.Name="编辑选中的时间线事件" TabIndex="14"
+                                        Click="EditEvent_Click" Content="编辑" IsEnabled="{Binding CanEditSelectedEvent}" Style="{StaticResource SecondaryButtonStyle}"
+                                        Visibility="{Binding HasSelectedEvents, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                <Button x:Name="CopyEventButton" Margin="6,0,0,0" MinWidth="48" AutomationProperties.Name="复制选中的时间线事件" TabIndex="15"
+                                        Click="CopyEvent_Click" Content="复制" IsEnabled="{Binding CanCopyEvent}" Style="{StaticResource SecondaryButtonStyle}"
+                                        Visibility="{Binding HasSelectedEvents, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                <Button x:Name="DeleteEventButton" Margin="6,0,0,0" MinWidth="48" AutomationProperties.Name="删除选中的时间线事件" TabIndex="16"
+                                        Click="DeleteEvent_Click" Content="删除" IsEnabled="{Binding CanDeleteEvent}" Style="{StaticResource DangerButtonStyle}"
+                                        Visibility="{Binding HasSelectedEvents, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                <Button x:Name="MoveEventUpButton" Margin="10,0,0,0" MinWidth="48" AutomationProperties.Name="向上移动选中的时间线事件" TabIndex="17"
+                                        Click="MoveEventUp_Click" Content="上移" IsEnabled="{Binding CanMoveEventUp}" Style="{StaticResource SecondaryButtonStyle}"
+                                        Visibility="{Binding HasSelectedEvents, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                <Button x:Name="MoveEventDownButton" Margin="6,0,0,0" MinWidth="48" AutomationProperties.Name="向下移动选中的时间线事件" TabIndex="18"
+                                        Click="MoveEventDown_Click" Content="下移" IsEnabled="{Binding CanMoveEventDown}" Style="{StaticResource SecondaryButtonStyle}"
+                                        Visibility="{Binding HasSelectedEvents, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                <Button x:Name="UndoButton" Margin="10,0,0,0" MinWidth="48" AutomationProperties.Name="撤销时间线编辑" TabIndex="19"
+                                        Click="Undo_Click" Content="撤销" IsEnabled="{Binding CanUndo}" Style="{StaticResource SecondaryButtonStyle}" ToolTip="{Binding UndoAvailabilityText}" />
+                                <Button x:Name="RedoButton" Margin="6,0,0,0" MinWidth="48" AutomationProperties.Name="重做时间线编辑" TabIndex="20"
+                                        Click="Redo_Click" Content="重做" IsEnabled="{Binding CanRedo}" Style="{StaticResource SecondaryButtonStyle}" ToolTip="{Binding RedoAvailabilityText}" />
+                                <Rectangle Width="1" Height="20" Margin="10,0" VerticalAlignment="Center" Fill="{DynamicResource BorderBrush}" Visibility="Collapsed" />
+                                <TextBlock Margin="0,0,5,0" VerticalAlignment="Center" Style="{StaticResource CaptionStyle}" Text="全部延时" Visibility="Collapsed" />
+                                <TextBox x:Name="DelayScalePercentTextBox" Width="54" AutomationProperties.Name="全部延时缩放百分比" TabIndex="25"
+                                         Style="{StaticResource ParameterTextBoxStyle}"
+                                         Visibility="Collapsed"
+                                         Text="{Binding DelayScalePercentText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                <TextBlock Margin="5,0" VerticalAlignment="Center" Style="{StaticResource CaptionStyle}" Text="%" Visibility="Collapsed" />
+                                <Button x:Name="ScaleDelaysButton" MinWidth="48" AutomationProperties.Name="批量缩放全部延时" TabIndex="26"
+                                        Click="ScaleDelays_Click" Content="缩放" IsEnabled="{Binding CanScaleDelays}" Style="{StaticResource SecondaryButtonStyle}"
+                                        Visibility="Collapsed" />
+                            </WrapPanel>
+                        </Border>
 
-                        <WrapPanel Grid.Row="4" VerticalAlignment="Center">
-                            <TextBlock Margin="0,0,6,0"
-                                       VerticalAlignment="Center"
-                                       Style="{StaticResource CaptionStyle}"
-                                       Text="键盘" />
-                            <TextBlock Margin="0,0,4,0"
-                                       VerticalAlignment="Center"
-                                       Style="{StaticResource CaptionStyle}"
-                                       Text="VK" />
-                            <TextBox x:Name="VirtualKeyTextBox"
-                                     AutomationProperties.Name="新键盘事件虚拟键码"
-                                     AutomationProperties.HelpText="输入 0 到 255 的十进制 Windows 虚拟键码"
-                                     TabIndex="12"
-                                     Width="58"
-                                     Height="32"
-                                     Padding="8,5"
-                                     VerticalContentAlignment="Center"
-                                     Background="{DynamicResource SurfaceSecondaryBrush}"
-                                     BorderBrush="{DynamicResource DividerBrush}"
-                                     BorderThickness="1"
-                                     Text="{Binding NewVirtualKeyText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                            <ComboBox x:Name="KeyTransitionSelector"
-                                      AutomationProperties.Name="新键盘事件按下或释放"
-                                      TabIndex="13"
-                                      Margin="6,0,0,0"
-                                      Width="76"
-                                      Height="32"
-                                      ItemsSource="{Binding InputTransitionOptions}"
-                                      DisplayMemberPath="DisplayName"
-                                      SelectedItem="{Binding SelectedKeyTransition, Mode=TwoWay}"
-                                      Background="{DynamicResource SurfaceSecondaryBrush}"
-                                      BorderBrush="{DynamicResource DividerBrush}" />
-                            <CheckBox x:Name="ExtendedKeyCheckBox"
-                                      AutomationProperties.Name="新键盘事件使用扩展键编码"
-                                      TabIndex="14"
-                                      Margin="8,0,8,0"
-                                      VerticalAlignment="Center"
-                                      Content="扩展键"
-                                      IsChecked="{Binding NewKeyIsExtended, Mode=TwoWay}" />
-                            <Button x:Name="InsertKeyEventButton"
-                                    AutomationProperties.Name="插入参数化键盘事件"
-                                    TabIndex="15"
-                                    Margin="0,0,14,0"
-                                    MinWidth="76"
-                                    Click="InsertKeyEvent_Click"
-                                    Content="插入键盘"
-                                    IsEnabled="{Binding CanInsertEvent}"
-                                    Style="{StaticResource SecondaryButtonStyle}" />
+                        <Border x:Name="TimelineInsertionToolbar" Grid.Row="2" Padding="10,8" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1"
+                                Visibility="{Binding HasSelectedMacro, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <WrapPanel ItemHeight="32" VerticalAlignment="Center">
+                                <TextBlock Margin="0,0,5,0" VerticalAlignment="Center" Style="{StaticResource CaptionStyle}" Text="键盘按键" />
+                                <TextBox x:Name="VirtualKeyTextBox" Width="82" AutomationProperties.Name="捕获新键盘事件按键" TabIndex="21"
+                                         AutomationProperties.HelpText="点击输入框后直接按下目标键"
+                                         IsReadOnly="True"
+                                         Style="{StaticResource ParameterTextBoxStyle}"
+                                         PreviewKeyDown="VirtualKeyTextBox_PreviewKeyDown"
+                                         Text="{Binding NewVirtualKeyDisplayText, Mode=OneWay}" />
+                                <ComboBox x:Name="KeyTransitionSelector" Width="70" Margin="6,0,0,0" AutomationProperties.Name="新键盘事件按下或释放" TabIndex="22"
+                                          ItemsSource="{Binding InputTransitionOptions}" DisplayMemberPath="DisplayName" SelectedItem="{Binding SelectedKeyTransition, Mode=TwoWay}" />
+                                <CheckBox x:Name="ExtendedKeyCheckBox" Margin="8,0" VerticalAlignment="Center" AutomationProperties.Name="新键盘事件使用扩展键编码" TabIndex="23"
+                                          Content="扩展键" IsChecked="{Binding NewKeyIsExtended, Mode=TwoWay}" />
+                                <Button x:Name="InsertKeyEventButton" MinWidth="72" AutomationProperties.Name="插入参数化键盘事件" TabIndex="24"
+                                        Click="InsertKeyEvent_Click" Content="插入键盘" IsEnabled="{Binding CanInsertEvent}" Style="{StaticResource SecondaryButtonStyle}" />
+                                <Rectangle Width="1" Height="20" Margin="10,0" VerticalAlignment="Center" Fill="{DynamicResource BorderBrush}" />
+                                <TextBlock Margin="0,0,5,0" VerticalAlignment="Center" Style="{StaticResource CaptionStyle}" Text="鼠标" />
+                                <ComboBox x:Name="MouseButtonSelector" Width="104" AutomationProperties.Name="新鼠标事件按钮" TabIndex="27"
+                                          ItemsSource="{Binding MouseButtonOptions}" DisplayMemberPath="DisplayName" SelectedItem="{Binding SelectedMouseButton, Mode=TwoWay}" />
+                                <ComboBox x:Name="MouseTransitionSelector" Width="70" Margin="6,0,0,0" AutomationProperties.Name="新鼠标事件按下或释放" TabIndex="28"
+                                          ItemsSource="{Binding InputTransitionOptions}" DisplayMemberPath="DisplayName" SelectedItem="{Binding SelectedMouseTransition, Mode=TwoWay}" />
+                                <Button x:Name="InsertMouseEventButton" Margin="6,0,0,0" MinWidth="72" AutomationProperties.Name="插入参数化鼠标事件" TabIndex="29"
+                                        Click="InsertMouseEvent_Click" Content="插入鼠标" IsEnabled="{Binding CanInsertEvent}" Style="{StaticResource SecondaryButtonStyle}" />
+                                <Rectangle Width="1" Height="20" Margin="10,0" VerticalAlignment="Center" Fill="{DynamicResource BorderBrush}" Visibility="Collapsed" />
+                                <TextBlock Margin="0,0,5,0" VerticalAlignment="Center" Style="{StaticResource CaptionStyle}" Text="延时" Visibility="Collapsed" />
+                                <TextBox x:Name="DelayMillisecondsTextBox" Width="68" AutomationProperties.Name="选中事件延时毫秒" TabIndex="30"
+                                         Style="{StaticResource ParameterTextBoxStyle}"
+                                         Visibility="Collapsed"
+                                         Text="{Binding DelayMillisecondsText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                <Button x:Name="ApplyDelayButton" Margin="6,0,0,0" MinWidth="48" AutomationProperties.Name="应用选中事件延时" TabIndex="31"
+                                        Click="ApplyDelay_Click" Content="应用" IsEnabled="{Binding CanUpdateSelectedDelay}" Style="{StaticResource SecondaryButtonStyle}"
+                                        Visibility="Collapsed" />
+                            </WrapPanel>
+                        </Border>
 
-                            <TextBlock Margin="0,0,6,0"
-                                       VerticalAlignment="Center"
-                                       Style="{StaticResource CaptionStyle}"
-                                       Text="鼠标" />
-                            <ComboBox x:Name="MouseButtonSelector"
-                                      AutomationProperties.Name="新鼠标事件按钮"
-                                      TabIndex="16"
-                                      Width="116"
-                                      Height="32"
-                                      ItemsSource="{Binding MouseButtonOptions}"
-                                      DisplayMemberPath="DisplayName"
-                                      SelectedItem="{Binding SelectedMouseButton, Mode=TwoWay}"
-                                      Background="{DynamicResource SurfaceSecondaryBrush}"
-                                      BorderBrush="{DynamicResource DividerBrush}" />
-                            <ComboBox x:Name="MouseTransitionSelector"
-                                      AutomationProperties.Name="新鼠标事件按下或释放"
-                                      TabIndex="17"
-                                      Margin="6,0,6,0"
-                                      Width="76"
-                                      Height="32"
-                                      ItemsSource="{Binding InputTransitionOptions}"
-                                      DisplayMemberPath="DisplayName"
-                                      SelectedItem="{Binding SelectedMouseTransition, Mode=TwoWay}"
-                                      Background="{DynamicResource SurfaceSecondaryBrush}"
-                                      BorderBrush="{DynamicResource DividerBrush}" />
-                            <Button x:Name="InsertMouseEventButton"
-                                    AutomationProperties.Name="插入参数化鼠标事件"
-                                    TabIndex="18"
-                                    MinWidth="76"
-                                    Click="InsertMouseEvent_Click"
-                                    Content="插入鼠标"
-                                    IsEnabled="{Binding CanInsertEvent}"
-                                    Style="{StaticResource SecondaryButtonStyle}" />
-                        </WrapPanel>
+                        <Border x:Name="NestedMacroToolbar" Grid.Row="3" Padding="10,6"
+                                Background="{DynamicResource SubtlePanelBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1"
+                                Visibility="{Binding ShowNestedMacroTools, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="8" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="8" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="6" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock VerticalAlignment="Center" Style="{StaticResource CaptionStyle}" Text="嵌套宏目标" />
+                                <ComboBox x:Name="NestedMacroTargetSelector" Grid.Column="2" MinWidth="160" MaxWidth="420"
+                                          HorizontalAlignment="Stretch" AutomationProperties.Name="选择已导入的嵌套宏目标" TabIndex="30"
+                                          TextSearch.TextPath="Name"
+                                          ItemsSource="{Binding AvailableReferenceTargets}" DisplayMemberPath="Name"
+                                          Text="{Binding SelectedReferenceTarget.Name, Mode=OneWay}"
+                                          SelectedItem="{Binding SelectedReferenceTarget, Mode=TwoWay}"
+                                          ToolTip="{Binding SelectedReferenceTarget.Name}" />
+                                <Button x:Name="BindNestedMacroButton" Grid.Column="4" MinWidth="72"
+                                        AutomationProperties.Name="将选中的嵌套宏事件绑定到目标宏" TabIndex="31"
+                                        Click="BindNestedMacro_Click" Content="绑定宏" IsEnabled="{Binding CanBindReferenceTarget}" Style="{StaticResource SecondaryButtonStyle}"
+                                        ToolTip="先选中时间线中的嵌套宏事件，再从下拉框选择目标" />
+                                <Button x:Name="InsertNestedMacroButton" Grid.Column="6" MinWidth="72"
+                                        AutomationProperties.Name="插入已导入宏作为嵌套宏事件" TabIndex="32"
+                                        Click="InsertNestedMacro_Click" Content="插入宏" IsEnabled="{Binding CanInsertMacroReference}" Style="{StaticResource SecondaryButtonStyle}" />
+                            </Grid>
+                        </Border>
 
-                        <WrapPanel Grid.Row="6" VerticalAlignment="Center">
-                            <TextBlock Margin="0,0,6,0"
-                                       VerticalAlignment="Center"
-                                       Style="{StaticResource CaptionStyle}"
-                                       Text="选中延时" />
-                            <TextBox x:Name="DelayMillisecondsTextBox"
-                                     AutomationProperties.Name="选中事件延时毫秒"
-                                     AutomationProperties.HelpText="输入大于或等于零的整数毫秒"
-                                     TabIndex="19"
-                                     Width="82"
-                                     Height="32"
-                                     Padding="8,5"
-                                     VerticalContentAlignment="Center"
-                                     Background="{DynamicResource SurfaceSecondaryBrush}"
-                                     BorderBrush="{DynamicResource DividerBrush}"
-                                     BorderThickness="1"
-                                     Text="{Binding DelayMillisecondsText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                            <Button x:Name="ApplyDelayButton"
-                                    AutomationProperties.Name="应用选中事件延时"
-                                    TabIndex="20"
-                                    Margin="6,0,14,0"
-                                    MinWidth="58"
-                                    Click="ApplyDelay_Click"
-                                    Content="应用"
-                                    IsEnabled="{Binding CanUpdateSelectedDelay}"
-                                    Style="{StaticResource SecondaryButtonStyle}" />
-
-                            <TextBlock Margin="0,0,6,0"
-                                       VerticalAlignment="Center"
-                                       Style="{StaticResource CaptionStyle}"
-                                       Text="全部延时" />
-                            <TextBox x:Name="DelayScalePercentTextBox"
-                                     AutomationProperties.Name="全部延时缩放百分比"
-                                     AutomationProperties.HelpText="同时缩放固定延时和随机延时，例如输入 125"
-                                     TabIndex="21"
-                                     Width="68"
-                                     Height="32"
-                                     Padding="8,5"
-                                     VerticalContentAlignment="Center"
-                                     Background="{DynamicResource SurfaceSecondaryBrush}"
-                                     BorderBrush="{DynamicResource DividerBrush}"
-                                     BorderThickness="1"
-                                     Text="{Binding DelayScalePercentText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                            <TextBlock Margin="4,0,6,0"
-                                       VerticalAlignment="Center"
-                                       Style="{StaticResource CaptionStyle}"
-                                       Text="%" />
-                            <Button x:Name="ScaleDelaysButton"
-                                    AutomationProperties.Name="批量缩放全部延时"
-                                    TabIndex="22"
-                                    Margin="0,0,14,0"
-                                    MinWidth="58"
-                                    Click="ScaleDelays_Click"
-                                    Content="缩放"
-                                    IsEnabled="{Binding CanScaleDelays}"
-                                    Style="{StaticResource SecondaryButtonStyle}" />
-                            <Button x:Name="UndoButton"
-                                    AutomationProperties.Name="撤销时间线编辑"
-                                    TabIndex="23"
-                                    Margin="0,0,6,0"
-                                    MinWidth="58"
-                                    Click="Undo_Click"
-                                    Content="撤销"
-                                    IsEnabled="{Binding CanUndo}"
-                                    Style="{StaticResource SecondaryButtonStyle}"
-                                    ToolTip="{Binding UndoAvailabilityText}" />
-                            <Button x:Name="RedoButton"
-                                    AutomationProperties.Name="重做时间线编辑"
-                                    TabIndex="24"
-                                    MinWidth="58"
-                                    Click="Redo_Click"
-                                    Content="重做"
-                                    IsEnabled="{Binding CanRedo}"
-                                    Style="{StaticResource SecondaryButtonStyle}"
-                                    ToolTip="{Binding RedoAvailabilityText}" />
-                        </WrapPanel>
-
-                        <WrapPanel Grid.Row="8" VerticalAlignment="Center">
-                            <TextBlock Margin="0,0,6,0"
-                                       VerticalAlignment="Center"
-                                       Style="{StaticResource CaptionStyle}"
-                                       Text="搜索事件" />
-                            <TextBox x:Name="EventSearchTextBox"
-                                     AutomationProperties.Name="搜索时间线事件"
-                                     AutomationProperties.HelpText="匹配事件序号、事件类型和详细信息，最多 128 个字符"
-                                     TabIndex="25"
-                                     Width="180"
-                                     Height="32"
-                                     MaxLength="128"
-                                     Padding="8,5"
-                                     VerticalContentAlignment="Center"
-                                     Background="{DynamicResource SurfaceSecondaryBrush}"
-                                     BorderBrush="{DynamicResource DividerBrush}"
-                                     BorderThickness="1"
-                                     Text="{Binding EventSearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged, Delay=250}" />
-                            <Button x:Name="FindPreviousEventButton"
-                                    AutomationProperties.Name="定位上一个时间线搜索结果"
-                                    TabIndex="26"
-                                    Margin="6,0,6,0"
-                                    MinWidth="70"
-                                    Click="FindPreviousEvent_Click"
-                                    Content="上一个"
-                                    IsEnabled="{Binding CanFindPreviousEvent, Mode=OneWay}"
-                                    Style="{StaticResource SecondaryButtonStyle}" />
-                            <Button x:Name="FindNextEventButton"
-                                    AutomationProperties.Name="定位下一个时间线搜索结果"
-                                    TabIndex="27"
-                                    Margin="0,0,8,0"
-                                    MinWidth="70"
-                                    Click="FindNextEvent_Click"
-                                    Content="下一个"
-                                    IsEnabled="{Binding CanFindNextEvent, Mode=OneWay}"
-                                    Style="{StaticResource SecondaryButtonStyle}" />
-                            <TextBlock x:Name="EventSearchResultTextBlock"
-                                       AutomationProperties.LiveSetting="Polite"
-                                       AutomationProperties.Name="时间线搜索结果计数"
-                                       MinWidth="48"
-                                       VerticalAlignment="Center"
-                                       Style="{StaticResource CaptionStyle}"
-                                       Text="{Binding EventSearchResultText, Mode=OneWay}" />
-                        </WrapPanel>
-
-                        <DataGrid x:Name="EventTimeline"
-                                  Grid.Row="10"
-                                  AutomationProperties.Name="宏事件时间线"
-                                  Focusable="True"
-                                  IsTabStop="True"
-                                  KeyboardNavigation.DirectionalNavigation="Contained"
-                                  KeyboardNavigation.TabNavigation="Once"
-                                  TabIndex="5"
-                                  ItemsSource="{Binding Events}"
-                                  SelectedItem="{Binding SelectedEvent, Mode=TwoWay}"
-                                  AutoGenerateColumns="False"
-                                  IsReadOnly="True"
-                                  CanUserAddRows="False"
-                                  CanUserDeleteRows="False"
-                                  CanUserReorderColumns="False"
-                                  HeadersVisibility="Column"
-                                  GridLinesVisibility="Horizontal"
-                                  HorizontalGridLinesBrush="{DynamicResource DividerBrush}"
-                                  BorderThickness="0"
-                                  Background="Transparent"
-                                  RowBackground="Transparent"
-                                  AlternatingRowBackground="{DynamicResource AlternateRowBrush}"
-                                  RowHeaderWidth="0"
-                                  ColumnHeaderHeight="34"
-                                  RowHeight="36"
-                                  SelectionMode="Single"
-                                  SelectionUnit="FullRow">
-                            <DataGrid.Resources>
-                                <Style TargetType="DataGridColumnHeader">
-                                    <Setter Property="Background" Value="Transparent" />
-                                    <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
-                                    <Setter Property="FontSize" Value="12" />
-                                    <Setter Property="FontWeight" Value="SemiBold" />
-                                    <Setter Property="BorderThickness" Value="0,0,0,1" />
-                                    <Setter Property="BorderBrush" Value="{DynamicResource DividerBrush}" />
-                                    <Setter Property="Padding" Value="10,0" />
-                                </Style>
-                                <Style TargetType="DataGridCell">
-                                    <Setter Property="BorderThickness" Value="0" />
-                                    <Setter Property="IsTabStop" Value="False" />
-                                    <Setter Property="Padding" Value="10,0" />
-                                    <Setter Property="VerticalContentAlignment" Value="Center" />
-                                    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
-                                    <Style.Triggers>
-                                        <Trigger Property="IsKeyboardFocusWithin" Value="True">
-                                            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
-                                            <Setter Property="BorderThickness" Value="1" />
-                                        </Trigger>
-                                    </Style.Triggers>
-                                </Style>
-                                <Style TargetType="DataGridRow">
-                                    <Setter Property="AutomationProperties.Name">
-                                        <Setter.Value>
-                                            <MultiBinding StringFormat="事件 {0}：{1}">
-                                                <Binding Path="Sequence" />
-                                                <Binding Path="Type" />
-                                            </MultiBinding>
-                                        </Setter.Value>
-                                    </Setter>
-                                </Style>
-                            </DataGrid.Resources>
+                        <DataGrid x:Name="EventTimeline" Grid.Row="4" AutomationProperties.Name="宏事件时间线"
+                                  TabIndex="6" Focusable="True" IsTabStop="True"
+                                  KeyboardNavigation.TabNavigation="Once" KeyboardNavigation.DirectionalNavigation="Contained"
+                                  ItemsSource="{Binding Events}" SelectedItem="{Binding SelectedEvent, Mode=TwoWay}"
+                                  SelectionMode="Extended" SelectionUnit="FullRow" SelectionChanged="EventTimeline_SelectionChanged"
+                                  AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" CanUserDeleteRows="False"
+                                  CanUserResizeRows="False" CanUserResizeColumns="False" CanUserSortColumns="False" HeadersVisibility="None"
+                                  Background="{DynamicResource PanelBrush}" BorderThickness="0" GridLinesVisibility="None"
+                                  ColumnHeaderStyle="{StaticResource TimelineHeaderStyle}" CellStyle="{StaticResource TimelineCellStyle}"
+                                  RowStyle="{StaticResource TimelineRowStyle}" RowHeaderWidth="0"
+                                  EnableRowVirtualization="True" EnableColumnVirtualization="True" VirtualizingPanel.IsVirtualizing="True"
+                                  VirtualizingPanel.VirtualizationMode="Recycling" ScrollViewer.CanContentScroll="True"
+                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto" ClipToBounds="True"
+                                  AllowDrop="True" PreviewMouseLeftButtonDown="EventTimeline_PreviewMouseLeftButtonDown"
+                                  PreviewMouseLeftButtonUp="EventTimeline_PreviewMouseLeftButtonUp"
+                                  Loaded="EventTimeline_Loaded" SizeChanged="EventTimeline_SizeChanged"
+                                  PreviewMouseMove="EventTimeline_PreviewMouseMove" DragOver="EventTimeline_DragOver"
+                                  DragLeave="EventTimeline_DragLeave" Drop="EventTimeline_Drop"
+                                  PreviewMouseRightButtonDown="EventTimeline_PreviewMouseRightButtonDown">
+                            <DataGrid.ContextMenu>
+                                <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                                    <MenuItem Header="编辑事件…" Click="EditEvent_Click" IsEnabled="{Binding CanEditSelectedEvent}" />
+                                    <Separator />
+                                    <MenuItem Header="复制" Click="CopyEvent_Click" IsEnabled="{Binding CanCopyEvent}" />
+                                    <MenuItem Header="删除" Click="DeleteEvent_Click" IsEnabled="{Binding CanDeleteEvent}" Tag="Danger" />
+                                    <Separator />
+                                    <MenuItem Header="上移" Click="MoveEventUp_Click" IsEnabled="{Binding CanMoveEventUp}" />
+                                    <MenuItem Header="下移" Click="MoveEventDown_Click" IsEnabled="{Binding CanMoveEventDown}" />
+                                </ContextMenu>
+                            </DataGrid.ContextMenu>
                             <DataGrid.Columns>
-                                <DataGridTextColumn Width="90" Binding="{Binding Sequence}" Header="序号" />
-                                <DataGridTextColumn Width="140" Binding="{Binding Type}" Header="事件类型" />
-                                <DataGridTextColumn Width="*" Binding="{Binding Details}" Header="详细信息" />
+                                <DataGridTemplateColumn x:Name="TimelineEventColumn" Width="*" MinWidth="180">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <Border Padding="10,0,16,0" ClipToBounds="True" ToolTip="{Binding TechnicalSummary}">
+                                                <Grid ClipToBounds="True">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="34" />
+                                                        <ColumnDefinition Width="40" />
+                                                        <ColumnDefinition Width="26" />
+                                                        <ColumnDefinition Width="28" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <Border Width="3" HorizontalAlignment="Left" Background="{DynamicResource RazerGreenBrush}" Panel.ZIndex="2">
+                                                        <Border.Style>
+                                                            <Style TargetType="Border">
+                                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=DataGridRow}}" Value="True">
+                                                                        <Setter Property="Visibility" Value="Visible" />
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </Border.Style>
+                                                    </Border>
+                                                    <CheckBox Grid.Column="0"
+                                                              HorizontalAlignment="Left"
+                                                              VerticalAlignment="Center"
+                                                              AutomationProperties.Name="选择时间线事件"
+                                                              IsChecked="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=DataGridRow}, Mode=OneWay}"
+                                                              PreviewMouseLeftButtonDown="EventSelectionCheckBox_PreviewMouseLeftButtonDown"
+                                                              Style="{StaticResource TimelineSelectionCheckBoxStyle}" />
+                                                    <TextBlock Grid.Column="1"
+                                                               VerticalAlignment="Center"
+                                                               Foreground="{DynamicResource TextSecondaryBrush}"
+                                                               FontSize="12"
+                                                               Style="{StaticResource TabularNumberTextStyle}"
+                                                               Text="{Binding DisplayNumber, StringFormat={}{0:D2}}" />
+                                                    <Path Grid.Column="2" HorizontalAlignment="Left" VerticalAlignment="Center" Style="{StaticResource EventIconPathStyle}" />
+                                                    <TextBlock Grid.Column="3"
+                                                               VerticalAlignment="Center"
+                                                               Foreground="{DynamicResource TextPrimaryBrush}"
+                                                               FontFamily="Segoe UI Symbol"
+                                                               FontSize="15"
+                                                               Text="{Binding TransitionSymbol}" />
+                                                    <TextBlock Grid.Column="4" Style="{StaticResource TimelineEditorLabelStyle}" Text="{Binding EditorLabel}" />
+                                                    <StackPanel Grid.Column="5" Margin="12,0,4,0" HorizontalAlignment="Right" VerticalAlignment="Center" Orientation="Horizontal"
+                                                                Tag="TimelineActions"
+                                                                Style="{StaticResource TimelineHoverPanelStyle}">
+                                                        <Button AutomationProperties.Name="复制选中事件" Click="InlineCopyEvent_Click" Style="{StaticResource TimelineInlineButtonStyle}" ToolTip="复制选中事件">
+                                                            <Viewbox><Path Style="{StaticResource TimelineCopyIconStyle}" /></Viewbox>
+                                                        </Button>
+                                                        <Button AutomationProperties.Name="删除选中事件" Click="InlineDeleteEvent_Click" Style="{StaticResource TimelineInlineButtonStyle}" ToolTip="删除选中事件">
+                                                            <Viewbox><Path Style="{StaticResource TimelineDeleteIconStyle}" /></Viewbox>
+                                                        </Button>
+                                                        <Border Width="28" Height="28" Cursor="SizeAll" Tag="TimelineDragHandle" ToolTip="拖动选中事件"
+                                                                PreviewMouseLeftButtonDown="EventDragHandle_PreviewMouseLeftButtonDown">
+                                                            <Viewbox Margin="6"><Path Style="{StaticResource TimelineDragIconStyle}" /></Viewbox>
+                                                        </Border>
+                                                    </StackPanel>
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
                             </DataGrid.Columns>
                         </DataGrid>
+                        <StackPanel x:Name="NoMacroEmptyState" Grid.Row="4" Margin="0,0,0,48" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="420">
+                            <StackPanel.Style>
+                                <Style TargetType="StackPanel">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding HasSelectedMacro}" Value="False">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </StackPanel.Style>
+                            <Path Width="34" Height="34" HorizontalAlignment="Center"
+                                  IsHitTestVisible="False"
+                                  AutomationProperties.Name=""
+                                  Data="{DynamicResource FileImportIconGeometry}"
+                                  Stroke="{DynamicResource RazerGreenBrush}"
+                                  StrokeThickness="1.5"
+                                  Style="{StaticResource TablerIconPathStyle}" />
+                            <TextBlock Margin="0,12,0,0" Style="{StaticResource EmptyStateTitleStyle}" Text="导入宏后开始编辑" />
+                            <TextBlock Margin="0,6,0,0" Style="{StaticResource EmptyStateCaptionStyle}"
+                                       Text="支持雷云 4、Synapse4 和 X-Mouse 宏；所有解析与转换均在本机完成。" />
+                            <StackPanel Margin="0,16,0,0" HorizontalAlignment="Center" Orientation="Horizontal">
+                                <Button MinWidth="96" Click="ImportFiles_Click" Content="选择文件" Style="{StaticResource PrimaryButtonStyle}" />
+                                <Button Margin="8,0,0,0" MinWidth="104" Click="ImportText_Click" Content="输入宏文本" Style="{StaticResource SecondaryButtonStyle}" />
+                            </StackPanel>
+                        </StackPanel>
+                        <StackPanel x:Name="EmptyMacroState" Grid.Row="4" Margin="0,0,0,48" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="380">
+                            <StackPanel.Style>
+                                <Style TargetType="StackPanel">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <MultiDataTrigger>
+                                            <MultiDataTrigger.Conditions>
+                                                <Condition Binding="{Binding HasSelectedMacro}" Value="True" />
+                                                <Condition Binding="{Binding HasTimelineEvents}" Value="False" />
+                                            </MultiDataTrigger.Conditions>
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </MultiDataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </StackPanel.Style>
+                            <Path Width="30" Height="30" HorizontalAlignment="Center"
+                                  IsHitTestVisible="False"
+                                  AutomationProperties.Name=""
+                                  Data="{DynamicResource InfoIconGeometry}"
+                                  Stroke="{DynamicResource TextSecondaryBrush}"
+                                  Style="{StaticResource TablerIconPathStyle}" />
+                            <TextBlock Margin="0,10,0,0" Style="{StaticResource EmptyStateTitleStyle}" Text="当前宏没有事件" />
+                            <TextBlock Margin="0,6,0,0" Style="{StaticResource EmptyStateCaptionStyle}"
+                                       Text="使用上方的延时、键盘或鼠标工具添加第一个事件。" />
+                        </StackPanel>
                     </Grid>
                 </Border>
 
-                <Border Grid.Row="4" Style="{StaticResource CardStyle}" Padding="18,14">
+                <GridSplitter x:Name="TimelineDiagnosticSplitter" Grid.Row="1" AutomationProperties.Name="调整事件时间线与兼容性报告大小"
+                              Height="8" TabIndex="7" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="Transparent"
+                              Visibility="{Binding HasSelectedMacro, Converter={StaticResource BooleanToVisibilityConverter}}"
+                              Focusable="True" IsTabStop="True" ResizeDirection="Rows" ResizeBehavior="PreviousAndNext" ShowsPreview="True" />
+
+                <Border x:Name="DiagnosticPanel" Grid.Row="2" MinHeight="128" MaxHeight="240" Padding="14,12" Style="{StaticResource CardStyle}"
+                        Visibility="{Binding HasSelectedMacro, Converter={StaticResource BooleanToVisibilityConverter}}">
                     <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="8" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="8" />
-                            <RowDefinition Height="*" />
-                            <RowDefinition Height="Auto" />
-                        </Grid.RowDefinitions>
+                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="8" /><RowDefinition Height="*" /></Grid.RowDefinitions>
                         <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Style="{StaticResource SectionTitleStyle}" Text="兼容性与安全报告" />
-                            <TextBlock Grid.Column="1"
-                                       VerticalAlignment="Center"
-                                       Style="{StaticResource CaptionStyle}"
-                                       Text="{Binding DiagnosticCountText}" />
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="8" /><ColumnDefinition Width="130" /><ColumnDefinition Width="8" /><ColumnDefinition Width="150" /></Grid.ColumnDefinitions>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Style="{StaticResource SectionTitleStyle}" Text="兼容性与安全报告" />
+                                <TextBlock Margin="10,2,0,0" VerticalAlignment="Center" Foreground="{DynamicResource RazerGreenBrush}"
+                                           Style="{StaticResource TabularNumberTextStyle}" Text="{Binding DiagnosticCountText}" />
+                            </StackPanel>
+                            <TextBlock Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource CaptionStyle}" Text="筛选" />
+                            <ComboBox x:Name="DiagnosticSeverityFilter" Grid.Column="3" AutomationProperties.Name="诊断严重级别筛选" TabIndex="8"
+                                      ItemsSource="{Binding DiagnosticSeverityOptions}" DisplayMemberPath="DisplayName" SelectedItem="{Binding SelectedDiagnosticSeverity, Mode=TwoWay}" />
+                            <ComboBox x:Name="DiagnosticScopeFilter" Grid.Column="5" AutomationProperties.Name="诊断来源筛选" TabIndex="9"
+                                      ItemsSource="{Binding DiagnosticScopes}" DisplayMemberPath="DisplayName" SelectedItem="{Binding SelectedDiagnosticScope, Mode=TwoWay}" />
                         </Grid>
-
                         <Grid Grid.Row="2">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="160" />
-                                <ColumnDefinition Width="8" />
-                                <ColumnDefinition Width="220" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <Border Padding="8,0"
-                                    Background="{DynamicResource SurfaceSecondaryBrush}"
-                                    BorderBrush="{DynamicResource DividerBrush}"
-                                    BorderThickness="1"
-                                    CornerRadius="9">
-                                <ComboBox x:Name="DiagnosticSeverityFilter"
-                                          ItemsSource="{Binding DiagnosticSeverityOptions}"
-                                          AutomationProperties.Name="诊断严重级别筛选"
-                                          TabIndex="28"
-                                          DisplayMemberPath="DisplayName"
-                                          SelectedItem="{Binding SelectedDiagnosticSeverity, Mode=TwoWay}"
-                                          Background="Transparent"
-                                          BorderThickness="0"
-                                          Padding="2,5" />
-                            </Border>
-                            <Border Grid.Column="2"
-                                    Padding="8,0"
-                                    Background="{DynamicResource SurfaceSecondaryBrush}"
-                                    BorderBrush="{DynamicResource DividerBrush}"
-                                    BorderThickness="1"
-                                    CornerRadius="9">
-                                <ComboBox x:Name="DiagnosticScopeFilter"
-                                          ItemsSource="{Binding DiagnosticScopes}"
-                                          AutomationProperties.Name="诊断来源筛选"
-                                          TabIndex="29"
-                                          DisplayMemberPath="DisplayName"
-                                          SelectedItem="{Binding SelectedDiagnosticScope, Mode=TwoWay}"
-                                          Background="Transparent"
-                                          BorderThickness="0"
-                                          Padding="2,5" />
-                            </Border>
-                        </Grid>
-
-                        <Grid Grid.Row="4">
-                            <TextBlock HorizontalAlignment="Center"
-                                       VerticalAlignment="Center"
-                                       Foreground="{DynamicResource TextSecondaryBrush}"
-                                       FontSize="12"
-                                       Text="当前筛选条件下没有诊断">
-                                <TextBlock.Style>
-                                    <Style TargetType="TextBlock">
+                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <StackPanel.Style>
+                                    <Style TargetType="StackPanel">
                                         <Setter Property="Visibility" Value="Collapsed" />
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding HasFilteredDiagnostics}" Value="False">
-                                                <Setter Property="Visibility" Value="Visible" />
-                                            </DataTrigger>
-                                        </Style.Triggers>
+                                        <Style.Triggers><DataTrigger Binding="{Binding HasDiagnostics}" Value="False"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
                                     </Style>
-                                </TextBlock.Style>
-                            </TextBlock>
-
-                            <ScrollViewer x:Name="DiagnosticScrollViewer"
-                                          AutomationProperties.Name="兼容性与安全诊断列表"
-                                          Focusable="True"
-                                          IsTabStop="True"
-                                          KeyboardNavigation.TabNavigation="None"
-                                          TabIndex="30"
-                                          VerticalScrollBarVisibility="Auto"
-                                          HorizontalScrollBarVisibility="Disabled">
-                                <ItemsControl x:Name="DiagnosticGroupList"
-                                              ItemsSource="{Binding DiagnosticGroups}"
-                                              AutomationProperties.Name="兼容性与安全诊断分组"
-                                              Focusable="False"
-                                              IsTabStop="False">
+                                </StackPanel.Style>
+                                <Path Width="24" Height="24" HorizontalAlignment="Center"
+                                      IsHitTestVisible="False"
+                                      AutomationProperties.Name=""
+                                      Data="{DynamicResource CircleCheckIconGeometry}"
+                                      Stroke="{DynamicResource SuccessBrush}"
+                                      Style="{StaticResource TablerIconPathStyle}" />
+                                <TextBlock Margin="0,7,0,0" Style="{StaticResource EmptyStateTitleStyle}" Text="未发现兼容性或安全问题" />
+                                <TextBlock Margin="0,3,0,0" Style="{StaticResource EmptyStateCaptionStyle}" Text="当前宏已通过基础检查，可以继续导出。" />
+                            </StackPanel>
+                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <StackPanel.Style>
+                                    <Style TargetType="StackPanel">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                        <Style.Triggers><DataTrigger Binding="{Binding HasFilteredOutDiagnostics}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
+                                    </Style>
+                                </StackPanel.Style>
+                                <TextBlock Style="{StaticResource EmptyStateTitleStyle}" Text="当前筛选没有结果" />
+                                <TextBlock Margin="0,3,0,8" Style="{StaticResource EmptyStateCaptionStyle}" Text="重置筛选后可查看全部诊断。" />
+                                <Button x:Name="ResetDiagnosticFiltersButton" MinWidth="88" Click="ResetDiagnosticFilters_Click" Content="重置筛选" Style="{StaticResource SecondaryButtonStyle}" />
+                            </StackPanel>
+                            <ScrollViewer x:Name="DiagnosticScrollViewer" AutomationProperties.Name="兼容性与安全诊断滚动区域"
+                                          TabIndex="10" Focusable="True" IsTabStop="True" KeyboardNavigation.TabNavigation="None"
+                                          VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                                          Visibility="{Binding HasFilteredDiagnostics, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <ItemsControl x:Name="DiagnosticGroupList" AutomationProperties.Name="按来源分组的诊断列表" ItemsSource="{Binding DiagnosticGroups}">
                                     <ItemsControl.ItemContainerStyle>
                                         <Style TargetType="ContentPresenter">
-                                            <Setter Property="AutomationProperties.Name"
-                                                    Value="{Binding Title, Converter={StaticResource SafeAutomationNameConverter}, ConverterParameter=诊断来源}" />
-                                            <Setter Property="Focusable" Value="False" />
-                                            <Setter Property="KeyboardNavigation.IsTabStop" Value="False" />
+                                            <Setter Property="AutomationProperties.Name" Value="{Binding Title, Converter={StaticResource SafeAutomationNameConverter}, ConverterParameter=诊断来源}" />
                                         </Style>
                                     </ItemsControl.ItemContainerStyle>
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
                                             <StackPanel Margin="0,0,0,10">
-                                                <Grid Margin="2,0,2,5">
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="*" />
-                                                        <ColumnDefinition Width="Auto" />
-                                                    </Grid.ColumnDefinitions>
-                                                    <TextBlock FontSize="12"
-                                                               FontWeight="SemiBold"
-                                                               Text="{Binding Title}"
-                                                               TextTrimming="CharacterEllipsis"
-                                                               ToolTip="{Binding Title}" />
-                                                    <TextBlock Grid.Column="1"
-                                                               Foreground="{DynamicResource TextSecondaryBrush}"
-                                                               FontSize="11"
-                                                               Text="{Binding CountText}" />
+                                                <Grid Margin="0,0,0,5">
+                                                    <TextBlock FontWeight="SemiBold" Text="{Binding Title}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Title}" />
+                                                    <TextBlock HorizontalAlignment="Right" Style="{StaticResource CaptionStyle}" Text="{Binding CountText}" />
                                                 </Grid>
-                                                <ItemsControl ItemsSource="{Binding Diagnostics}"
-                                                              Focusable="False"
-                                                              IsTabStop="False"
-                                                              KeyboardNavigation.TabNavigation="None">
+                                                <ItemsControl ItemsSource="{Binding Diagnostics}">
                                                     <ItemsControl.ItemContainerStyle>
                                                         <Style TargetType="ContentPresenter">
                                                             <Setter Property="AutomationProperties.Name">
-                                                                <Setter.Value>
-                                                                    <MultiBinding StringFormat="{}{0}：{1}">
-                                                                        <Binding Path="Code" />
-                                                                        <Binding Path="Severity" />
-                                                                    </MultiBinding>
-                                                                </Setter.Value>
+                                                                <Setter.Value><MultiBinding StringFormat="{}{0}：{1}"><Binding Path="Code" /><Binding Path="Severity" /></MultiBinding></Setter.Value>
                                                             </Setter>
-                                                            <Setter Property="Focusable" Value="False" />
-                                                            <Setter Property="KeyboardNavigation.IsTabStop" Value="False" />
                                                         </Style>
                                                     </ItemsControl.ItemContainerStyle>
                                                     <ItemsControl.ItemTemplate>
                                                         <DataTemplate>
-                                                            <Border Margin="0,0,0,5"
-                                                                    Padding="10,7"
-                                                                    Background="{DynamicResource DiagnosticSurfaceBrush}"
-                                                                    CornerRadius="8">
+                                                            <Border Margin="0,0,0,4" Padding="8,6" Background="{DynamicResource DiagnosticItemBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="3">
                                                                 <Grid>
-                                                                    <Grid.ColumnDefinitions>
-                                                                        <ColumnDefinition Width="62" />
-                                                                        <ColumnDefinition Width="138" />
-                                                                        <ColumnDefinition Width="*" />
-                                                                    </Grid.ColumnDefinitions>
-                                                                    <TextBlock FontSize="12" FontWeight="SemiBold">
-                                                                        <TextBlock.Style>
-                                                                            <Style TargetType="TextBlock">
-                                                                                <Setter Property="Text" Value="信息" />
-                                                                                <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+                                                                    <Grid.ColumnDefinitions><ColumnDefinition Width="18" /><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                                                    <Path Width="13" Height="13" Data="{DynamicResource InfoIconGeometry}">
+                                                                        <Path.Style>
+                                                                            <Style TargetType="Path" BasedOn="{StaticResource TablerIconPathStyle}">
+                                                                                <Setter Property="Stroke" Value="{DynamicResource InfoBrush}" /><Setter Property="Data" Value="{DynamicResource InfoIconGeometry}" />
                                                                                 <Style.Triggers>
-                                                                                    <DataTrigger Binding="{Binding Severity}" Value="Warning">
-                                                                                        <Setter Property="Text" Value="警告" />
-                                                                                        <Setter Property="Foreground" Value="{DynamicResource WarningBrush}" />
-                                                                                    </DataTrigger>
-                                                                                    <DataTrigger Binding="{Binding Severity}" Value="Error">
-                                                                                        <Setter Property="Text" Value="错误" />
-                                                                                        <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
-                                                                                    </DataTrigger>
+                                                                                    <DataTrigger Binding="{Binding Severity}" Value="{x:Static diagnostics:DiagnosticSeverity.Warning}"><Setter Property="Stroke" Value="{DynamicResource WarningBrush}" /><Setter Property="Data" Value="{DynamicResource WarningIconGeometry}" /></DataTrigger>
+                                                                                    <DataTrigger Binding="{Binding Severity}" Value="{x:Static diagnostics:DiagnosticSeverity.Error}"><Setter Property="Stroke" Value="{DynamicResource ErrorBrush}" /><Setter Property="Data" Value="{DynamicResource ErrorIconGeometry}" /></DataTrigger>
                                                                                 </Style.Triggers>
                                                                             </Style>
-                                                                        </TextBlock.Style>
-                                                                    </TextBlock>
-                                                                    <TextBlock Grid.Column="1"
-                                                                               FontFamily="Cascadia Mono, Consolas"
-                                                                               FontSize="11"
-                                                                               Foreground="{DynamicResource TextSecondaryBrush}"
-                                                                               Text="{Binding Code}"
-                                                                               TextTrimming="CharacterEllipsis"
-                                                                               ToolTip="{Binding Code}" />
-                                                                    <TextBlock Grid.Column="2"
-                                                                               FontSize="12"
-                                                                               Text="{Binding Message}"
-                                                                               TextWrapping="Wrap" />
+                                                                        </Path.Style>
+                                                                    </Path>
+                                                                    <TextBlock Grid.Column="1" FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" Text="{Binding Code}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Code}" />
+                                                                    <TextBlock Grid.Column="2" FontSize="12" Text="{Binding Message}" TextWrapping="Wrap" />
                                                                 </Grid>
                                                             </Border>
                                                         </DataTemplate>
@@ -818,44 +981,106 @@
                                 </ItemsControl>
                             </ScrollViewer>
                         </Grid>
-
-                        <Grid Grid.Row="5" Margin="0,8,0,0">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel>
-                                <TextBlock x:Name="StatusTextBlock"
-                                           AutomationProperties.LiveSetting="Polite"
-                                           AutomationProperties.Name="{Binding StatusText, Converter={StaticResource SafeAutomationNameConverter}, ConverterParameter=操作状态}"
-                                           FontSize="12"
-                                           Foreground="{DynamicResource TextSecondaryBrush}"
-                                           Text="{Binding StatusText}" />
-                                <ProgressBar x:Name="OperationProgress"
-                                             Margin="0,7,0,0"
-                                             AutomationProperties.Name="导入导出进度"
-                                             Height="4"
-                                             Maximum="100"
-                                             Value="{Binding ProgressPercent, Mode=OneWay}"
-                                             Foreground="{DynamicResource AccentBrush}"
-                                             Background="{DynamicResource DividerBrush}" />
-                            </StackPanel>
-                            <Button x:Name="CancelButton"
-                                    Grid.Column="1"
-                                    AutomationProperties.Name="取消当前操作"
-                                    TabIndex="31"
-                                    Margin="12,0,0,0"
-                                    MinWidth="72"
-                                    VerticalAlignment="Bottom"
-                                    Click="Cancel_Click"
-                                    Content="取消"
-                                    IsEnabled="{Binding CanCancel}"
-                                    Style="{StaticResource SecondaryButtonStyle}" />
-                        </Grid>
+                    </Grid>
+                </Border>
+                <Border x:Name="WorkspaceStatusBar" Grid.Row="3" Padding="12,4" Background="{DynamicResource SubtlePanelBrush}"
+                        BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="3">
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock x:Name="StatusTextBlock" AutomationProperties.LiveSetting="Polite"
+                                       AutomationProperties.Name="{Binding StatusText, Converter={StaticResource SafeAutomationNameConverter}, ConverterParameter=操作状态}"
+                                       Style="{StaticResource CaptionStyle}" Text="{Binding StatusText}" TextTrimming="CharacterEllipsis" />
+                            <ProgressBar x:Name="OperationProgress" Margin="0,4,0,0" AutomationProperties.Name="当前操作进度"
+                                         Maximum="100" Value="{Binding ProgressPercent, Mode=OneWay}"
+                                         Visibility="{Binding IsBusy, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                        </StackPanel>
+                        <Button x:Name="CancelButton" Grid.Column="1" Margin="12,0,0,0" MinWidth="70" VerticalAlignment="Center"
+                                AutomationProperties.Name="取消当前操作" TabIndex="11" Click="Cancel_Click" Content="取消" IsEnabled="{Binding CanCancel}"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Visibility="{Binding IsBusy, Converter={StaticResource BooleanToVisibilityConverter}}" />
                     </Grid>
                 </Border>
             </Grid>
         </Grid>
         </ScrollViewer>
+
+        <local:MacroLibraryView x:Name="MacroLibraryContent" Grid.Row="2" Visibility="Collapsed" />
+
+        <ScrollViewer x:Name="SettingsContent" Grid.Row="2" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <Grid Margin="24">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="720" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="1" Margin="0,26,0,0">
+                <TextBlock FontSize="18" FontWeight="SemiBold" Text="设置与关于" />
+                <TextBlock Margin="0,5,0,20" Style="{StaticResource CaptionStyle}" Text="XMacro Bridge 使用固定的雷云暗色界面，转换过程完全在本机完成。" />
+                <Border Margin="0,0,0,12" Padding="20" Style="{StaticResource CardStyle}"
+                        DataContext="{Binding ElementName=MacroLibraryContent, Path=DataContext}">
+                    <StackPanel>
+                        <TextBlock FontSize="16" FontWeight="SemiBold" Text="宏库保存路径" />
+                        <TextBlock Margin="0,5,0,12" Style="{StaticResource CaptionStyle}" Text="切换路径不会移动旧资料；迁移会复制并校验后再切换。" />
+                        <TextBox AutomationProperties.Name="宏库保存路径" Style="{StaticResource ReadOnlyFieldStyle}" Text="{Binding RootPathDisplay, Mode=OneWay}" />
+                        <WrapPanel Margin="0,12,0,0">
+                            <Button Click="ChooseLibraryRoot_Click" Content="选择路径" Style="{StaticResource PrimaryButtonStyle}" />
+                            <Button Margin="8,0,0,0" Click="OpenLibraryFolder_Click" Content="打开目录" Style="{StaticResource SecondaryButtonStyle}" />
+                            <Button Margin="8,0,0,0" Click="RestoreDefaultLibraryRoot_Click" Content="恢复默认" Style="{StaticResource SecondaryButtonStyle}" />
+                            <Button Margin="8,0,0,0" Click="MigrateLibrary_Click" Content="迁移宏库" Style="{StaticResource SecondaryButtonStyle}" />
+                        </WrapPanel>
+                        <TextBlock Margin="0,10,0,0" AutomationProperties.LiveSetting="Polite" Style="{StaticResource CaptionStyle}" Text="{Binding StatusText}" />
+                        <TextBlock Margin="0,5,0,0" Foreground="{DynamicResource WarningBrush}" Text="{Binding WarningsText}" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+                <Border Padding="20" Style="{StaticResource CardStyle}">
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="52" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <Image x:Name="BrandSettingsLogo" Width="36" Height="36" HorizontalAlignment="Left" VerticalAlignment="Top"
+                               IsHitTestVisible="False"
+                               AutomationProperties.Name=""
+                               RenderOptions.BitmapScalingMode="HighQuality"
+                               Source="Assets/XMacroBridgeLogo.png" />
+                        <StackPanel Grid.Column="1">
+                            <TextBlock FontSize="16" FontWeight="SemiBold" Text="RAZER XMACRO BRIDGE" />
+                            <TextBlock Margin="0,4,0,0" Style="{StaticResource CaptionStyle}" Text="雷蛇宏转换增强工具" />
+                            <Separator Margin="0,16" Background="{DynamicResource BorderBrush}" />
+                            <TextBlock Text="本地离线处理" FontWeight="SemiBold" />
+                            <TextBlock Margin="0,5,0,0" Style="{StaticResource CaptionStyle}" Text="不会连接云端，不会修改雷云或 X-Mouse 的原始配置；导出使用安全临时文件流程。" TextWrapping="Wrap" />
+                            <TextBlock Margin="0,18,0,0" Foreground="{DynamicResource TextSecondaryBrush}" Text="Razer 增强工具 · 非官方" />
+                            <TextBlock Margin="0,4,0,0" Style="{StaticResource CaptionStyle}" Text="个人本地工具，非 Razer 官方产品。" />
+                            <TextBlock Margin="0,14,0,0" Style="{StaticResource CaptionStyle}"
+                                       Text="{Binding ApplicationVersion, RelativeSource={RelativeSource AncestorType=Window}, StringFormat=版本 {0}}" />
+                            <Button Margin="0,10,0,0" Width="132" HorizontalAlignment="Left"
+                                    Click="OpenThirdPartyNotices_Click" Content="第三方许可说明" Style="{StaticResource SecondaryButtonStyle}" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </StackPanel>
+        </Grid>
+        </ScrollViewer>
+
+        <Popup x:Name="TimelineDragFeedbackPopup"
+               AllowsTransparency="True"
+               IsHitTestVisible="False"
+               Placement="RelativePoint"
+               PlacementTarget="{Binding ElementName=EventTimeline}"
+               StaysOpen="True">
+            <Border MinWidth="170"
+                    Padding="14,9"
+                    Background="{DynamicResource RazerGreenBrush}"
+                    CornerRadius="4">
+                <StackPanel Orientation="Horizontal">
+                    <Viewbox Width="20" Height="20" VerticalAlignment="Center">
+                        <Path Data="{DynamicResource StackIconGeometry}"
+                              Stroke="{DynamicResource RazerGreenTextBrush}"
+                              Style="{StaticResource TablerIconPathStyle}" />
+                    </Viewbox>
+                    <TextBlock x:Name="TimelineDragFeedbackTextBlock"
+                               Margin="9,0,0,0"
+                               VerticalAlignment="Center"
+                               Foreground="{DynamicResource RazerGreenTextBrush}"
+                               FontSize="13"
+                               FontWeight="SemiBold"
+                               Text="移动 1 个操作" />
+                </StackPanel>
+            </Border>
+        </Popup>
     </Grid>
 </Window>

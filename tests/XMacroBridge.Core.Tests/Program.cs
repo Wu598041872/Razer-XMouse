@@ -1,6 +1,7 @@
 using XMacroBridge.Application.Exporting;
 using XMacroBridge.Application.Formats;
 using XMacroBridge.Application.Importing;
+using XMacroBridge.Application.Library;
 using XMacroBridge.Core.Abstractions;
 using XMacroBridge.Core.Conversion;
 using XMacroBridge.Core.Diagnostics;
@@ -25,6 +26,7 @@ var tests = new (string Name, Action Run)[]
     ("Razer XML malformed event preserves surrounding events", RazerXmlMalformedEventPreservesSurroundingEvents),
     ("Razer delay precision loss is diagnosed", RazerDelayPrecisionLossIsDiagnosed),
     ("Razer XML Type 6 millisecond delay imports", RazerXmlType6MillisecondDelayImports),
+    ("Razer XML embedded GUID resolves standalone nested macros", RazerXmlEmbeddedGuidResolvesStandaloneNestedMacros),
     ("Razer XML Type 6 loop expands for XMBC and Razer", RazerXmlType6LoopExpandsForBothExports),
     ("Razer XML nested loops expand safely", RazerXmlNestedLoopsExpandSafely),
     ("Razer XML malformed loops are rejected", RazerXmlMalformedLoopsAreRejected),
@@ -55,10 +57,13 @@ var tests = new (string Name, Action Run)[]
     ("XMBC text export rejects invalid key", XmbcTextExportRejectsInvalidKey),
     ("Razer XML export round trips", RazerXmlExportRoundTrips),
     ("Razer XML export uses Synapse 4 input codes", RazerXmlExportUsesSynapse4InputCodes),
+    ("Pasted XMBC exports native Synapse 4 key and mouse codes", PastedXmbcExportsNativeSynapse4Codes),
     ("Razer XML export rejects unsupported mouse", RazerXmlExportRejectsUnsupportedMouse),
     ("XMBC modifiers apply to next key", XmbcModifiersApplyToNextKey),
     ("XMBC HOLDMS applies to next key", XmbcHoldMsAppliesToNextKey),
-    ("XMBC PRESS and RELEASE span multiple keys", XmbcPressReleaseSpanMultipleKeys),
+    ("XMBC HOLDMS works in persistent press release mode", XmbcHoldMsWorksInPersistentMode),
+    ("XMBC PRESS and RELEASE apply to the next key", XmbcPressReleaseApplyToNextKey),
+    ("XMBC one-shot release does not corrupt following clicks", XmbcOneShotReleasePreservesFollowingClicks),
     ("XMBC extended key and mouse tags import", XmbcExtendedTagsImport),
     ("XMBC modifier states export round trip", XmbcModifierStatesExportRoundTrip),
     ("Razer XML export rejects extended key", RazerXmlExportRejectsExtendedKey),
@@ -71,8 +76,10 @@ var tests = new (string Name, Action Run)[]
     ("XMBC rejects non-adjacent atomic wheel pairs", XmbcRejectsNonAdjacentAtomicWheelPairs),
     ("XMBC rejects mismatched and isolated atomic mouse events", XmbcRejectsMalformedAtomicMouseEvents),
     ("Application import service handles fixture directory", ApplicationImportServiceHandlesFixtureDirectory),
+    ("Application import service accepts pasted XMBC text", ApplicationImportServiceAcceptsPastedXmbcText),
     ("Application import service preserves BOM-encoded inputs", ApplicationImportServicePreservesBomEncodedInputs),
     ("Application import service diagnoses unknown XML", ApplicationImportServiceDiagnosesUnknownXml),
+    ("Macro library stores groups metadata trash and migration safely", MacroLibraryStoresGroupsMetadataTrashAndMigrationSafely),
     ("Cancelled import releases input handle and supports retry", CancelledImportReleasesInputHandleAndSupportsRetry),
     ("Safe export writes atomically and protects source", SafeExportWritesAtomicallyAndProtectsSource),
     ("Failed safe export cleans temporary files", FailedSafeExportCleansTemporaryFiles),
@@ -82,9 +89,17 @@ var tests = new (string Name, Action Run)[]
     ("Export rejects a file used as the target directory", ExportRejectsFileUsedAsTargetDirectory),
     ("Safe export rejects Windows reserved names", SafeExportRejectsWindowsReservedNames),
     ("Workspace imports fixtures and refreshes event rows", WorkspaceImportsFixturesAndRefreshesEventRows),
+    ("Workspace imports pasted XMBC text", WorkspaceImportsPastedXmbcText),
+    ("Workspace appends later imports without removing earlier macros", WorkspaceAppendsLaterImports),
+    ("Workspace event rows identify exact key mouse and transition", WorkspaceEventRowsIdentifyExactInputs),
+    ("Workspace macro text edit reparses and preserves name", WorkspaceMacroTextEditReparsesAndPreservesName),
+    ("Workspace rename updates exported XML name and history", WorkspaceRenameUpdatesExportedXmlNameAndHistory),
+    ("Workspace deletes macros from the list", WorkspaceDeletesMacrosFromList),
     ("Workspace suppresses duplicate unknown-event diagnostics", WorkspaceSuppressesDuplicateUnknownEventDiagnostics),
     ("Workspace expands nested macros before export", WorkspaceExpandsNestedMacrosBeforeExport),
+    ("Workspace binds and inserts nested macro targets", WorkspaceBindsAndInsertsNestedMacroTargets),
     ("Workspace exports both supported target formats", WorkspaceExportsBothSupportedTargetFormats),
+    ("Workspace explicitly updates a macro library source", WorkspaceExplicitlyUpdatesMacroLibrarySource),
     ("Workspace blocks invalid selection and reports missing selection", WorkspaceBlocksInvalidAndMissingSelection),
     ("Workspace filters and groups diagnostics", WorkspaceFiltersAndGroupsDiagnostics),
     ("Workspace delay editing revalidates and supports history", WorkspaceDelayEditingRevalidatesAndSupportsHistory),
@@ -96,6 +111,7 @@ var tests = new (string Name, Action Run)[]
     ("Workspace copied events revalidate safety", WorkspaceCopiedEventsRevalidateSafety),
     ("Workspace moved events normalize order and revalidate", WorkspaceMovedEventsNormalizeOrderAndRevalidate),
     ("Workspace structural editing respects event limit", WorkspaceStructuralEditingRespectsEventLimit),
+    ("Workspace multi-selection copies deletes and moves event blocks", WorkspaceMultiSelectionCopiesDeletesAndMovesEventBlocks),
     ("Workspace inserts parameterized keyboard events", WorkspaceInsertsParameterizedKeyboardEvents),
     ("Workspace rejects invalid virtual-key input", WorkspaceRejectsInvalidVirtualKeyInput),
     ("Workspace inserts parameterized mouse events", WorkspaceInsertsParameterizedMouseEvents),
@@ -181,6 +197,8 @@ static void RazerXmlNativeZeroBasedMouseCodesImport()
 {
     const string xml = """
         <Macro><Name>Native Mouse Codes</Name><MacroEvents>
+          <MacroEvent><Type>1</Type><KeyEvent><Makecode>69</Makecode><State>0</State></KeyEvent></MacroEvent>
+          <MacroEvent><Type>1</Type><KeyEvent><Makecode>69</Makecode><State>1</State></KeyEvent></MacroEvent>
           <MacroEvent><Type>2</Type><MouseEvent><MouseButton>0</MouseButton><State>0</State></MouseEvent></MacroEvent>
           <MacroEvent><Type>2</Type><MouseEvent><MouseButton>0</MouseButton><State>1</State></MouseEvent></MacroEvent>
           <MacroEvent><Type>6</Type><Number>2</Number><LoopEvent><State>0</State></LoopEvent></MacroEvent>
@@ -195,6 +213,8 @@ static void RazerXmlNativeZeroBasedMouseCodesImport()
     Assert(result.Diagnostics.All(item => item.Severity != DiagnosticSeverity.Error), "Native zero-based mouse codes produced an import error.");
     Assert(
         EventSignatures(result.Documents.Single()).SequenceEqual([
+            "key:69:Down:False",
+            "key:69:Up:False",
             "mouse:Left:Down",
             "mouse:Left:Up",
             "mouse:Right:Down",
@@ -511,7 +531,7 @@ static void NestedMacroCycleIsRejected()
 static void NestedMacroCanFallBackToIndex()
 {
     var child = CreateNamedDocument("Child", new DelayMacroEvent(0, 5));
-    var root = CreateNamedDocument("Root", new MacroReferenceEvent(0, Guid.NewGuid(), 1, "Child"));
+    var root = CreateNamedDocument("Root", new MacroReferenceEvent(0, Guid.NewGuid(), 2, "Child"));
 
     var result = new NestedMacroResolver().Resolve(root, [root, child]);
     Assert(result.Document is not null, "Valid fallback index should resolve.");
@@ -911,14 +931,57 @@ static void RazerXmlExportUsesSynapse4InputCodes()
 
     Assert(diagnostics.All(item => item.Severity != DiagnosticSeverity.Error), "Synapse 4 code export should succeed.");
     var xml = Encoding.UTF8.GetString(output.ToArray());
-    Assert(xml.Contains("<Makecode>18</Makecode>", StringComparison.Ordinal), "E must use scan code 18 instead of virtual-key code 69.");
-    Assert(xml.Contains("<Makecode>17</Makecode>", StringComparison.Ordinal), "W must use scan code 17 instead of virtual-key code 87.");
-    Assert(xml.Contains("<MouseButton>1</MouseButton>", StringComparison.Ordinal), "Left mouse must use Synapse 4 button code 1.");
-    Assert(xml.Contains("<MouseButton>2</MouseButton>", StringComparison.Ordinal), "Right mouse must use Synapse 4 button code 2.");
+    Assert(xml.Contains("<Makecode>69</Makecode>", StringComparison.Ordinal), "E must use Synapse 4 virtual-key code 69.");
+    Assert(xml.Contains("<Makecode>87</Makecode>", StringComparison.Ordinal), "W must use Synapse 4 virtual-key code 87.");
+    Assert(xml.Contains("<MouseButton>0</MouseButton>", StringComparison.Ordinal), "Left mouse must use Synapse 4 native button code 0.");
+    Assert(xml.Contains("<MouseButton>1</MouseButton>", StringComparison.Ordinal), "Right mouse must use Synapse 4 native button code 1.");
+    Assert(!xml.Contains("<MouseButton>2</MouseButton>", StringComparison.Ordinal), "Synapse 4 native export must not use one-based right-button code 2.");
     Assert(xml.Contains("<mmtSetting>0</mmtSetting>", StringComparison.Ordinal), "Synapse 4 action bar metadata is missing.");
     Assert(xml.Contains("<DelaySetting>0</DelaySetting>", StringComparison.Ordinal), "Synapse 4 delay metadata is missing.");
     Assert(xml.Contains("<Version>4</Version>", StringComparison.Ordinal), "Synapse 4 version metadata is missing.");
     Assert(xml.Contains("<MouseMoveType>none</MouseMoveType>", StringComparison.Ordinal), "Synapse 4 mouse movement metadata is missing.");
+}
+
+static void RazerXmlEmbeddedGuidResolvesStandaloneNestedMacros()
+{
+    var childId = Guid.Parse("252a04f0-d244-421f-ad81-463f04f4a8a1");
+    var parentId = Guid.Parse("b9639fca-5487-467a-b19c-79c1890d500f");
+    var childXml = $"<Macro><Name>Child</Name><MacroEvents><MacroEvent><Type>0</Type><Number>0.010</Number></MacroEvent></MacroEvents><Guid>{childId}</Guid><Version>4</Version></Macro>";
+    var parentXml = $"<Macro><Name>Parent</Name><MacroEvents><MacroEvent><Type>7</Type><MPIndex>1</MPIndex><guid>{childId}</guid></MacroEvent></MacroEvents><Guid>{parentId}</Guid><Version>4</Version></Macro>";
+
+    using var childStream = new MemoryStream(Encoding.UTF8.GetBytes(childXml));
+    using var parentStream = new MemoryStream(Encoding.UTF8.GetBytes(parentXml));
+    var child = new RazerMacroXmlImporter().ImportAsync(childStream, "child.xml").GetAwaiter().GetResult().Documents.Single();
+    var parent = new RazerMacroXmlImporter().ImportAsync(parentStream, "parent.xml").GetAwaiter().GetResult().Documents.Single();
+
+    Assert(child.Id == childId, "Standalone Razer XML must preserve its embedded root GUID.");
+    Assert(parent.Id == parentId, "Parent standalone Razer XML must preserve its embedded root GUID.");
+    var resolved = new NestedMacroResolver().Resolve(parent, [child, parent]);
+    Assert(resolved.Document is not null, "Embedded GUID reference should resolve across separately imported XML files.");
+    Assert(resolved.Diagnostics.All(item => item.Severity != DiagnosticSeverity.Error), "Embedded GUID resolution produced an error.");
+    Assert(resolved.Document!.Events.Single() is DelayMacroEvent { Milliseconds: 10 }, "Nested child events were not expanded.");
+}
+
+static void PastedXmbcExportsNativeSynapse4Codes()
+{
+    const string text = "e{WAITMS:330}{LMB}{WAITMS:160}{RMB}";
+    using var input = new MemoryStream(Encoding.UTF8.GetBytes(text));
+    var source = new XmbcMacroTextImporter().ImportAsync(input, "pasted.txt").GetAwaiter().GetResult().Documents.Single();
+    using var output = new MemoryStream();
+    var diagnostics = new RazerMacroXmlExporter().ExportAsync(source, output).GetAwaiter().GetResult();
+
+    Assert(diagnostics.All(item => item.Severity != DiagnosticSeverity.Error), "Pasted XMBC sequence should export to Synapse 4.");
+    var xml = Encoding.UTF8.GetString(output.ToArray());
+    Assert(xml.Contains("<Makecode>69</Makecode>", StringComparison.Ordinal), "Pasted E key was not exported as VK 69.");
+    Assert(xml.Contains("<MouseButton>0</MouseButton>", StringComparison.Ordinal), "Pasted left click was not exported as native code 0.");
+    Assert(xml.Contains("<MouseButton>1</MouseButton>", StringComparison.Ordinal), "Pasted right click was not exported as native code 1.");
+    Assert(!xml.Contains("<MouseButton>2</MouseButton>", StringComparison.Ordinal), "Pasted sequence used obsolete one-based mouse output.");
+
+    output.Position = 0;
+    var roundTrip = new RazerMacroXmlImporter().ImportAsync(output, "pasted-roundtrip.xml").GetAwaiter().GetResult();
+    Assert(
+        EventSignatures(roundTrip.Documents.Single()).SequenceEqual(EventSignatures(source)),
+        "Pasted XMBC sequence changed after Synapse 4 export and import.");
 }
 
 static void RazerXmlExportRejectsUnsupportedMouse()
@@ -960,13 +1023,51 @@ static void XmbcHoldMsAppliesToNextKey()
     ]), "HOLDMS sequence is incorrect.");
 }
 
-static void XmbcPressReleaseSpanMultipleKeys()
+static void XmbcHoldMsWorksInPersistentMode()
 {
-    using var stream = new MemoryStream(Encoding.UTF8.GetBytes("{PRESS}abc{WAITMS:100}{RELEASE}cba"));
+    using var stream = new MemoryStream(Encoding.UTF8.GetBytes("{PRESS}{HOLDMS:40}e{RELEASE}{HOLDMS:20}e"));
+    var imported = new XmbcMacroTextImporter().ImportAsync(stream, "persistent-hold.txt").GetAwaiter().GetResult();
+
+    Assert(imported.Diagnostics.All(item => item.Code != "XMBC_TOKEN_UNKNOWN"), "HOLDMS in PRESS/RELEASE mode should not be reported as unknown.");
+    Assert(EventSignatures(imported.Documents.Single()).SequenceEqual([
+        "key:69:Down:False",
+        "delay:40",
+        "delay:20",
+        "key:69:Up:False",
+    ]), "Persistent HOLDMS timing was not preserved around key transitions.");
+    Assert(!new MacroValidator().Validate(imported.Documents.Single()).HasErrors, "Persistent HOLDMS sequence should remain balanced.");
+}
+
+static void XmbcPressReleaseApplyToNextKey()
+{
+    using var stream = new MemoryStream(Encoding.UTF8.GetBytes("{PRESS}a{RELEASE}abb"));
     var imported = new XmbcMacroTextImporter().ImportAsync(stream, "press-release.txt").GetAwaiter().GetResult();
     var document = imported.Documents.Single();
-    Assert(document.Events.Count == 7, "PRESS/RELEASE should span three keys and one delay.");
-    Assert(!new MacroValidator().Validate(document).HasErrors, "Balanced multi-key PRESS/RELEASE should validate.");
+    Assert(EventSignatures(document).SequenceEqual([
+        "key:65:Down:False",
+        "key:65:Up:False",
+        "key:66:Down:False",
+        "key:66:Up:False",
+        "key:66:Down:False",
+        "key:66:Up:False",
+    ]), "PRESS/RELEASE should affect only the immediately following key.");
+    Assert(!new MacroValidator().Validate(document).HasErrors, "One-shot PRESS/RELEASE sequence should validate.");
+}
+
+static void XmbcOneShotReleasePreservesFollowingClicks()
+{
+    const string text = "{PRESS}e{WAITMS:500}{RELEASE}e{WAITMS:100}3{WAITMS:200}e{WAITMS:750}q{WAITMS:1800}{ALT}{HOLDMS:40}4";
+    using var stream = new MemoryStream(Encoding.UTF8.GetBytes(text));
+    var imported = new XmbcMacroTextImporter().ImportAsync(stream, "one-shot-release.txt").GetAwaiter().GetResult();
+    var document = imported.Documents.Single();
+    var validation = new MacroValidator().Validate(document);
+
+    Assert(imported.Diagnostics.All(item => item.Severity != DiagnosticSeverity.Error), "Confirmed one-shot sequence produced an import error.");
+    Assert(validation.Diagnostics.All(item => item.Code != "KEY_UP_WITHOUT_DOWN"), "Following clicks were incorrectly parsed as release-only events.");
+    Assert(!validation.HasErrors, "The representative user sequence should remain balanced.");
+    Assert(document.Events.OfType<KeyMacroEvent>().Count(item => item.VirtualKey == 51) == 2, "The 3 key should be a normal down/up click.");
+    Assert(document.Events.OfType<KeyMacroEvent>().Count(item => item.VirtualKey == 18) == 2, "Alt modifier should be a balanced down/up pair.");
+    Assert(document.Events.OfType<DelayMacroEvent>().Any(item => item.Milliseconds == 40), "HOLDMS delay was not preserved.");
 }
 
 static void XmbcExtendedTagsImport()
@@ -1164,6 +1265,26 @@ static void ApplicationImportServiceHandlesFixtureDirectory()
     {
         Directory.Delete(tempDirectory, true);
     }
+}
+
+static void ApplicationImportServiceAcceptsPastedXmbcText()
+{
+    const string text = "{PRESS}e{WAITMS:50}{RELEASE}e{WAITMS:10}{LMB}";
+    var service = new MacroImportService(MacroFormatRegistry.CreateDefault());
+    var result = service.ImportTextAsync(text).GetAwaiter().GetResult();
+
+    Assert(result.Documents.Count == 1, "Pasted XMBC text should produce one macro.");
+    Assert(result.Documents[0].Name == "粘贴的 X-Mouse 宏", "Pasted macro should receive a controlled display name.");
+    Assert(result.Documents[0].SourceFormat == "xmbc.macro.text", "Pasted text was routed to the wrong importer.");
+    Assert(result.Documents[0].Events.Count == 6, "Pasted macro event count is incorrect.");
+    Assert(!result.Diagnostics.Any(item => item.Severity == DiagnosticSeverity.Error), "Valid pasted text produced an error.");
+    Assert(result.ProcessedFiles.Count == 0, "In-memory text import must not report a processed file.");
+
+    var limited = service.ImportTextAsync(
+        text,
+        options: new MacroImportOptions(MaximumBatchBytes: 8)).GetAwaiter().GetResult();
+    Assert(limited.Documents.Count == 0, "Oversized pasted text should not be parsed.");
+    Assert(limited.Diagnostics.Any(item => item.Code == "IMPORT_BATCH_SIZE_LIMIT"), "Pasted text size limit diagnostic is absent.");
 }
 
 static void ApplicationImportServicePreservesBomEncodedInputs()
@@ -1483,6 +1604,177 @@ static void WorkspaceImportsFixturesAndRefreshesEventRows()
     }
 }
 
+static void WorkspaceImportsPastedXmbcText()
+{
+    var viewModel = WorkspaceViewModel.CreateDefault();
+    viewModel.ImportTextAsync("e{WAITMS:25}{LMB}").GetAwaiter().GetResult();
+
+    Assert(viewModel.Macros.Count == 1, "Workspace should expose the pasted macro.");
+    Assert(viewModel.SelectedMacro?.Name == "粘贴的 X-Mouse 宏", "Workspace did not select the pasted macro.");
+    Assert(viewModel.Events.Count == 5, "Workspace event rows are out of sync after pasted import.");
+    Assert(viewModel.StatusText == "已追加输入的 X-Mouse 宏文本，工作区共 1 个宏", "Workspace pasted-import status is incorrect.");
+    Assert(viewModel.CanExport, "Valid pasted XMBC text should be exportable.");
+}
+
+static void WorkspaceAppendsLaterImports()
+{
+    var viewModel = WorkspaceViewModel.CreateDefault();
+    viewModel.ImportTextAsync("e{WAITMS:10}").GetAwaiter().GetResult();
+    var firstMacro = viewModel.SelectedMacro ?? throw new InvalidOperationException("First imported macro is missing.");
+
+    viewModel.ImportTextAsync("w{WAITMS:20}").GetAwaiter().GetResult();
+
+    Assert(viewModel.Macros.Count == 2, "A second import replaced the existing workspace macro.");
+    Assert(viewModel.Macros.Any(item => ReferenceEquals(item, firstMacro)), "The first workspace macro disappeared after the second import.");
+    Assert(viewModel.SelectedMacro is not null && !ReferenceEquals(viewModel.SelectedMacro, firstMacro),
+        "The newly appended macro was not selected.");
+    Assert(viewModel.StatusText == "已追加输入的 X-Mouse 宏文本，工作区共 2 个宏",
+        "Append-import status did not report the combined workspace count.");
+}
+
+static void WorkspaceEventRowsIdentifyExactInputs()
+{
+    var viewModel = WorkspaceViewModel.CreateDefault();
+    viewModel.ImportTextAsync("e{LMB}{RMB}").GetAwaiter().GetResult();
+
+    Assert(
+        viewModel.Events.Select(item => item.Type).SequenceEqual([
+            "键盘 E 按下",
+            "键盘 E 松开",
+            "鼠标左键 按下",
+            "鼠标左键 松开",
+            "鼠标右键 按下",
+            "鼠标右键 松开",
+        ]),
+        "Timeline event types do not identify the exact key, mouse button, and transition.");
+    Assert(
+        viewModel.Events.Select(item => item.EditorLabel).SequenceEqual([
+            "E",
+            "E",
+            "左键单击",
+            "左键单击",
+            "右键单击",
+            "右键单击",
+        ]),
+        "Synapse-style timeline labels are incorrect.");
+    Assert(
+        viewModel.Events.Select(item => item.TransitionSymbol).SequenceEqual(["↓", "↑", "↓", "↑", "↓", "↑"]),
+        "Synapse-style transition arrows are incorrect.");
+
+    var namedKeys = CreateNamedDocument(
+        "按键显示",
+        new KeyMacroEvent(0, 87, InputTransition.Down),
+        new KeyMacroEvent(1, 0xA2, InputTransition.Up),
+        new KeyMacroEvent(2, 0x26, InputTransition.Down),
+        new MouseMacroEvent(3, MouseButton.XButton1, InputTransition.Down));
+    viewModel.Macros.Clear();
+    viewModel.Macros.Add(namedKeys);
+    viewModel.SelectedMacro = namedKeys;
+    Assert(viewModel.Events[0].Type == "键盘 W 按下", "Letter key display is incorrect.");
+    Assert(viewModel.Events[1].Type == "键盘 左 Ctrl 松开", "Modifier key display is incorrect.");
+    Assert(viewModel.Events[2].Type == "键盘 上方向键 按下", "Direction key display is incorrect.");
+    Assert(viewModel.Events[3].Type == "鼠标侧键 1 按下", "Extended mouse-button display is incorrect.");
+    Assert(viewModel.Events[0].EditorLabel == "W", "Letter editor label is incorrect.");
+    Assert(viewModel.Events[1].EditorLabel == "左 Ctrl", "Modifier editor label is incorrect.");
+    Assert(viewModel.Events[2].EditorLabel == "上方向键", "Direction editor label is incorrect.");
+    Assert(viewModel.Events[3].EditorLabel == "侧键 1 单击", "Extended mouse editor label is incorrect.");
+
+    var delays = CreateNamedDocument(
+        "延时显示",
+        new DelayMacroEvent(0, 0),
+        new DelayMacroEvent(1, 200),
+        new DelayMacroEvent(2, 1800),
+        new RandomDelayMacroEvent(3, 100, 300));
+    viewModel.Macros.Clear();
+    viewModel.Macros.Add(delays);
+    viewModel.SelectedMacro = delays;
+    Assert(
+        viewModel.Events.Select(item => item.EditorLabel).SequenceEqual(["0.000s", "0.200s", "1.800s", "0.100s–0.300s"]),
+        "Delay editor labels must use invariant three-decimal seconds.");
+    Assert(viewModel.Events[1].TechnicalSummary == "固定延时 · 200 ms", "Delay technical tooltip is incorrect.");
+}
+
+static void WorkspaceMacroTextEditReparsesAndPreservesName()
+{
+    var viewModel = WorkspaceViewModel.CreateDefault();
+    viewModel.ImportTextAsync("e{WAITMS:10}{LMB}").GetAwaiter().GetResult();
+    var original = viewModel.SelectedMacro ?? throw new InvalidOperationException("Pasted macro was not selected.");
+    Assert(viewModel.RenameMacro(original, "自定义名称"), "Rename before text edit failed.");
+    original = viewModel.SelectedMacro!;
+
+    var editableText = viewModel.GetMacroTextAsync(original).GetAwaiter().GetResult();
+    Assert(editableText == "e{WAITMS:10}{LMB}", "Original raw XMBC text was not retained for editing.");
+    Assert(viewModel.ReplaceMacroTextAsync(original, "w{WAITMS:20}{RMB}").GetAwaiter().GetResult(), "Macro text edit should succeed.");
+    Assert(viewModel.SelectedMacro?.Name == "自定义名称", "Macro text edit changed the macro name.");
+    Assert(viewModel.Events.Select(item => item.Type).SequenceEqual([
+        "键盘 W 按下",
+        "键盘 W 松开",
+        "延时",
+        "鼠标右键 按下",
+        "鼠标右键 松开",
+    ]), "Edited macro text was not reparsed into the expected timeline.");
+    Assert(viewModel.CanUndo, "Macro text edit should enter undo history.");
+    Assert(viewModel.Undo(), "Macro text edit undo should succeed.");
+    Assert(viewModel.SelectedMacro?.Name == "自定义名称", "Undo changed the preserved macro name.");
+    Assert(viewModel.Events.Any(item => item.Type == "键盘 E 按下"), "Undo did not restore the original macro text events.");
+}
+
+static void WorkspaceRenameUpdatesExportedXmlNameAndHistory()
+{
+    var original = CreateNamedDocument(
+        "旧名称",
+        new KeyMacroEvent(0, 69, InputTransition.Down),
+        new KeyMacroEvent(1, 69, InputTransition.Up));
+    var viewModel = WorkspaceViewModel.CreateDefault();
+    viewModel.Macros.Add(original);
+    viewModel.SelectedMacro = original;
+
+    Assert(viewModel.RenameMacro(original, "  新名称  "), "Workspace rename should succeed.");
+    Assert(viewModel.SelectedMacro?.Name == "新名称", "Renamed macro was not selected with its new name.");
+    Assert(viewModel.Macros.Single().Name == "新名称", "Workspace list did not receive the renamed document.");
+    Assert(viewModel.CanUndo, "Rename should enter edit history.");
+
+    using var output = new MemoryStream();
+    var diagnostics = new RazerMacroXmlExporter().ExportAsync(viewModel.SelectedMacro!, output).GetAwaiter().GetResult();
+    Assert(diagnostics.All(item => item.Severity != DiagnosticSeverity.Error), "Renamed macro should export.");
+    var xml = Encoding.UTF8.GetString(output.ToArray());
+    Assert(xml.Contains("<Name>新名称</Name>", StringComparison.Ordinal), "Exported XML did not use the renamed internal macro name.");
+    Assert(!xml.Contains("<Name>旧名称</Name>", StringComparison.Ordinal), "Exported XML retained the old internal macro name.");
+
+    Assert(viewModel.Undo(), "Rename undo should succeed.");
+    Assert(viewModel.SelectedMacro?.Name == "旧名称", "Undo did not restore the original macro name.");
+    Assert(viewModel.Redo(), "Rename redo should succeed.");
+    Assert(viewModel.SelectedMacro?.Name == "新名称", "Redo did not restore the renamed macro name.");
+    Assert(!viewModel.RenameMacro(viewModel.SelectedMacro!, "   "), "Blank macro name should be rejected.");
+    Assert(viewModel.SelectedMacro?.Name == "新名称", "Rejected rename changed the macro name.");
+}
+
+static void WorkspaceDeletesMacrosFromList()
+{
+    var first = CreateNamedDocument(
+        "first",
+        new KeyMacroEvent(0, 69, InputTransition.Down),
+        new KeyMacroEvent(1, 69, InputTransition.Up));
+    var second = CreateNamedDocument(
+        "second",
+        new DelayMacroEvent(0, 10));
+    var viewModel = WorkspaceViewModel.CreateDefault();
+    viewModel.Macros.Add(first);
+    viewModel.Macros.Add(second);
+    viewModel.SelectedMacro = first;
+
+    Assert(viewModel.CanDeleteMacro, "Selected macro should be deletable.");
+    Assert(viewModel.DeleteMacro(first), "Deleting the selected macro should succeed.");
+    Assert(viewModel.Macros.SequenceEqual([second]), "Workspace list did not remove the deleted macro.");
+    Assert(ReferenceEquals(viewModel.SelectedMacro, second), "Deleting a macro should select the adjacent macro.");
+    Assert(viewModel.CanExport, "Remaining valid macro should remain exportable after deletion.");
+
+    Assert(viewModel.DeleteMacro(second), "Deleting the final macro should succeed.");
+    Assert(viewModel.Macros.Count == 0, "Workspace list should be empty after deleting the final macro.");
+    Assert(viewModel.SelectedMacro is null && viewModel.Events.Count == 0, "Deleting the final macro should clear selection and timeline.");
+    Assert(!viewModel.CanDeleteMacro && !viewModel.CanExport, "Empty workspace should not expose delete or export.");
+}
+
 static void WorkspaceSuppressesDuplicateUnknownEventDiagnostics()
 {
     const string xml = """
@@ -1532,10 +1824,10 @@ static void WorkspaceSearchesTimelineEventsAndCyclesSelection()
     Assert(!viewModel.CanUndo, "Searching must not enter the edit history.");
 
     Assert(viewModel.FindNextEvent(), "First next-result navigation should succeed.");
-    Assert(viewModel.SelectedEvent is { DisplayIndex: 0, Type: "键盘" }, "Next-result navigation did not select the first match.");
+    Assert(viewModel.SelectedEvent is { DisplayIndex: 0 } && viewModel.SelectedEvent.Type.StartsWith("键盘", StringComparison.Ordinal), "Next-result navigation did not select the first match.");
     Assert(viewModel.EventSearchResultText == "1 / 2", "Current search position is incorrect after first navigation.");
     Assert(viewModel.FindNextEvent(), "Second next-result navigation should succeed.");
-    Assert(viewModel.SelectedEvent is { DisplayIndex: 2, Type: "键盘" }, "Next-result navigation did not select the second match.");
+    Assert(viewModel.SelectedEvent is { DisplayIndex: 2 } && viewModel.SelectedEvent.Type.StartsWith("键盘", StringComparison.Ordinal), "Next-result navigation did not select the second match.");
     Assert(viewModel.FindNextEvent() && viewModel.SelectedEvent?.DisplayIndex == 0, "Next-result navigation did not wrap to the first match.");
     Assert(viewModel.FindPreviousEvent() && viewModel.SelectedEvent?.DisplayIndex == 2, "Previous-result navigation did not wrap to the final match.");
 
@@ -1697,6 +1989,68 @@ static void WorkspaceExportsBothSupportedTargetFormats()
         var xmbcPath = Path.Combine(tempDirectory, "macro.txt");
         var xmbcResult = viewModel.ExportAsync(xmbcPath).GetAwaiter().GetResult();
         Assert(xmbcResult.Succeeded && File.Exists(xmbcPath), "Workspace XMBC export failed.");
+    }
+    finally
+    {
+        Directory.Delete(tempDirectory, true);
+    }
+}
+
+static void WorkspaceBindsAndInsertsNestedMacroTargets()
+{
+    var missingId = Guid.Parse("78cc2135-f688-40d0-bc1c-1242711ba226");
+    var child = CreateNamedDocument("已导入子宏", new DelayMacroEvent(0, 25));
+    var root = CreateNamedDocument(
+        "父宏",
+        new MacroReferenceEvent(0, missingId, 9, "旧目标"));
+    var viewModel = WorkspaceViewModel.CreateDefault();
+    viewModel.Macros.Add(root);
+    viewModel.Macros.Add(child);
+    viewModel.SelectedMacro = root;
+    viewModel.SelectedEvent = viewModel.Events.Single();
+
+    Assert(viewModel.AvailableReferenceTargets.SequenceEqual([child]), "Reference target list must contain other imported macros and exclude the current macro.");
+    viewModel.SelectedReferenceTarget = child;
+    Assert(viewModel.CanBindReferenceTarget, "A selected missing reference should allow manual target binding.");
+    Assert(viewModel.BindSelectedReferenceTarget(), "Manual nested target binding failed.");
+    var rebound = (MacroReferenceEvent)viewModel.SelectedMacro!.Events.Single();
+    Assert(rebound.TargetGuid == child.Id && rebound.TargetName == child.Name, "Manual binding did not store the selected target identity.");
+    Assert(rebound.TargetIndex == 2, "Manual binding did not store the target's one-based workspace index.");
+    Assert(viewModel.CanExport, "A manually rebound valid nested macro should pass workspace validation.");
+    Assert(viewModel.Undo(), "Manual nested binding should enter undo history.");
+    Assert(((MacroReferenceEvent)viewModel.SelectedMacro!.Events.Single()).TargetGuid == missingId, "Undo did not restore the original reference.");
+    Assert(viewModel.Redo(), "Manual nested binding should support redo.");
+
+    var insertionRoot = CreateNamedDocument("插入父宏", new DelayMacroEvent(0, 10));
+    var insertionViewModel = WorkspaceViewModel.CreateDefault();
+    insertionViewModel.Macros.Add(insertionRoot);
+    insertionViewModel.Macros.Add(child);
+    insertionViewModel.SelectedMacro = insertionRoot;
+    insertionViewModel.SelectedEvent = insertionViewModel.Events.Single();
+    insertionViewModel.SelectedReferenceTarget = child;
+    Assert(insertionViewModel.CanInsertMacroReference, "An imported child macro should be insertable as a nested event.");
+    Assert(insertionViewModel.InsertMacroReference(), "Nested macro insertion failed.");
+    Assert(insertionViewModel.SelectedMacro!.Events.Count == 2 && insertionViewModel.SelectedMacro.Events[1] is MacroReferenceEvent inserted && inserted.TargetGuid == child.Id,
+        "Inserted nested event does not reference the selected imported macro.");
+}
+
+static void WorkspaceExplicitlyUpdatesMacroLibrarySource()
+{
+    var tempDirectory = CreateTemporaryDirectory();
+    try
+    {
+        var sourcePath = Path.Combine(tempDirectory, "library-source.xml");
+        File.Copy(Path.Combine(AppContext.BaseDirectory, "Fixtures", "basic-key-delay.xml"), sourcePath);
+        var viewModel = WorkspaceViewModel.CreateDefault();
+        var imported = viewModel.ImportLibraryItemAsync(sourcePath).GetAwaiter().GetResult();
+        Assert(imported is not null, "Macro library source did not import into the workspace.");
+        Assert(viewModel.RenameMacro(imported!, "显式更新名称"), "Macro library workspace rename failed.");
+
+        var blocked = viewModel.ExportAsync(sourcePath, overwrite: true).GetAwaiter().GetResult();
+        Assert(!blocked.Succeeded, "Normal export unexpectedly overwrote its source file.");
+        var updated = viewModel.ExportAsync(sourcePath, overwrite: true, allowExplicitSourceUpdate: true).GetAwaiter().GetResult();
+        Assert(updated.Succeeded, "Explicit macro library update remained blocked by source protection.");
+        Assert(File.ReadAllText(sourcePath).Contains("显式更新名称", StringComparison.Ordinal), "Explicit macro library update did not write the current macro name.");
     }
     finally
     {
@@ -2055,6 +2409,54 @@ static void WorkspaceStructuralEditingRespectsEventLimit()
     Assert(viewModel.SelectedMacro!.Events.Count == 2, "Insert after delete did not restore the configured event count.");
 }
 
+static void WorkspaceMultiSelectionCopiesDeletesAndMovesEventBlocks()
+{
+    var document = CreateNamedDocument(
+        "多选编辑",
+        new DelayMacroEvent(0, 10),
+        new DelayMacroEvent(1, 20),
+        new DelayMacroEvent(2, 30),
+        new DelayMacroEvent(3, 40),
+        new DelayMacroEvent(4, 50));
+    var viewModel = WorkspaceViewModel.CreateDefault();
+    viewModel.Macros.Add(document);
+    viewModel.SelectedMacro = document;
+
+    viewModel.SelectedEvent = viewModel.Events[1];
+    viewModel.SetSelectedEventIndices([1, 2]);
+    Assert(viewModel.SelectedEventCount == 2 && viewModel.CanCopyEvent && viewModel.CanDeleteEvent, "Multi-selection state did not enable group actions.");
+    Assert(viewModel.CopySelectedEvents([1, 2]), "Multi-selection copy failed.");
+    Assert(
+        viewModel.SelectedMacro!.Events.Cast<DelayMacroEvent>().Select(item => item.Milliseconds).SequenceEqual([10L, 20L, 30L, 20L, 30L, 40L, 50L]),
+        "Copied event block did not preserve order or insertion position.");
+    Assert(viewModel.SelectedEventIndices.SequenceEqual([3, 4]), "Copied event block was not selected.");
+    Assert(viewModel.Undo(), "Multi-selection copy was not undoable.");
+
+    viewModel.SelectedEvent = viewModel.Events[1];
+    viewModel.SetSelectedEventIndices([1, 3]);
+    Assert(viewModel.DeleteSelectedEvents([1, 3]), "Non-contiguous multi-selection delete failed.");
+    Assert(
+        viewModel.SelectedMacro!.Events.Cast<DelayMacroEvent>().Select(item => item.Milliseconds).SequenceEqual([10L, 30L, 50L]),
+        "Multi-selection delete removed the wrong events.");
+    Assert(viewModel.Undo(), "Multi-selection delete was not undoable.");
+
+    viewModel.SelectedEvent = viewModel.Events[1];
+    viewModel.SetSelectedEventIndices([1, 2]);
+    Assert(viewModel.MoveSelectedEventsTo([1, 2], 4, insertAfter: true), "Dragging an event block to the end failed.");
+    Assert(
+        viewModel.SelectedMacro!.Events.Cast<DelayMacroEvent>().Select(item => item.Milliseconds).SequenceEqual([10L, 40L, 50L, 20L, 30L]),
+        "Dragged event block did not preserve order.");
+    Assert(viewModel.SelectedEventIndices.SequenceEqual([3, 4]), "Dragged event block selection was not restored.");
+    Assert(viewModel.Undo(), "Dragged event block was not undoable.");
+
+    viewModel.SelectedEvent = viewModel.Events[2];
+    viewModel.SetSelectedEventIndices([2, 3]);
+    Assert(viewModel.MoveSelectedEvents([2, 3], -1), "Moving a selected event block up failed.");
+    Assert(
+        viewModel.SelectedMacro!.Events.Cast<DelayMacroEvent>().Select(item => item.Milliseconds).SequenceEqual([10L, 30L, 40L, 20L, 50L]),
+        "Selected event block move-up order is incorrect.");
+}
+
 static void WorkspaceInsertsParameterizedKeyboardEvents()
 {
     var original = CreateNamedDocument("键盘插入");
@@ -2155,6 +2557,100 @@ static void WorkspaceInsertsParameterizedMouseEvents()
     Assert(Encoding.UTF8.GetString(output.ToArray()).Contains("{MWUP}", StringComparison.Ordinal), "Inserted wheel pair did not export as an XMBC atomic action.");
 }
 
+static void MacroLibraryStoresGroupsMetadataTrashAndMigrationSafely()
+{
+    var parent = CreateTemporaryDirectory();
+    var root = Path.Combine(parent, "library");
+    var sourceDirectory = Path.Combine(parent, "source");
+    var destination = Path.Combine(parent, "migrated");
+    var settingsPath = Path.Combine(parent, "settings", "settings.json");
+    Directory.CreateDirectory(sourceDirectory);
+    Directory.CreateDirectory(destination);
+    try
+    {
+        var service = new MacroLibraryService();
+        var createGroup = service.CreateGroupAsync(root, "丝柯克").GetAwaiter().GetResult();
+        Assert(createGroup.Succeeded, "Macro library group creation failed.");
+
+        var textResult = service.SaveTextAsync(root, "丝柯克", "2aq", "e{WAITMS:30}").GetAwaiter().GetResult();
+        Assert(textResult.Succeeded && textResult.RelativePath == "丝柯克/2aq.txt", "Macro library text save used the wrong path.");
+        var duplicateText = service.SaveTextAsync(root, "丝柯克", "2aq", "a{WAITMS:40}").GetAwaiter().GetResult();
+        Assert(duplicateText.RelativePath == "丝柯克/2aq (2).txt", "Macro library did not suffix a duplicate name.");
+
+        var sourceXml = Path.Combine(sourceDirectory, "razer.xml");
+        File.Copy(Path.Combine(AppContext.BaseDirectory, "Fixtures", "basic-key-delay.xml"), sourceXml);
+        var sourceHash = SHA256.HashData(File.ReadAllBytes(sourceXml));
+        var import = service.ImportFilesAsync(root, string.Empty, [sourceXml], MacroLibraryItemKind.RazerXml).GetAwaiter().GetResult();
+        Assert(import.Succeeded && import.RelativePath == "razer.xml", "Macro library XML import failed.");
+        Assert(sourceHash.AsSpan().SequenceEqual(SHA256.HashData(File.ReadAllBytes(sourceXml))), "Macro library import modified the source file.");
+
+        File.WriteAllBytes(Path.Combine(root, "丝柯克", "attachment.png"), [1, 2, 3]);
+        Directory.CreateDirectory(Path.Combine(root, "丝柯克", "nested"));
+        File.WriteAllText(Path.Combine(root, "丝柯克", "nested", "ignored.txt"), "ignored");
+        var snapshot = service.ScanAsync(root).GetAwaiter().GetResult();
+        Assert(snapshot.Items.Count == 3, "Macro library scan included an attachment or nested file.");
+        Assert(snapshot.Groups.Single().Name == "丝柯克" && snapshot.Groups.Single().ItemCount == 2, "Macro library group count is incorrect.");
+        Assert(snapshot.Warnings.Any(item => item.Contains("多级目录", StringComparison.Ordinal)), "Macro library did not report ignored nested content.");
+
+        service.SetFavoriteAsync(root, textResult.RelativePath!, true).GetAwaiter().GetResult();
+        service.MarkRecentAsync(root, textResult.RelativePath!).GetAwaiter().GetResult();
+        snapshot = service.ScanAsync(root).GetAwaiter().GetResult();
+        var favorite = snapshot.Items.Single(item => item.RelativePath == textResult.RelativePath);
+        Assert(favorite.IsFavorite && favorite.LastUsedAt is not null, "Macro library metadata did not persist favorite and recent state.");
+
+        service.SetOrderAsync(root, [duplicateText.RelativePath!, import.RelativePath!, textResult.RelativePath!]).GetAwaiter().GetResult();
+        snapshot = service.ScanAsync(root).GetAwaiter().GetResult();
+        Assert(snapshot.Items.Select(item => item.RelativePath).SequenceEqual([
+            duplicateText.RelativePath!,
+            import.RelativePath!,
+            textResult.RelativePath!,
+        ]), "Macro library custom drag order did not persist.");
+
+        var renamed = service.RenameItemAsync(root, textResult.RelativePath!, "主循环").GetAwaiter().GetResult();
+        Assert(renamed.Succeeded && renamed.RelativePath == "丝柯克/主循环.txt", "Macro library rename failed.");
+        var moved = service.MoveItemAsync(root, renamed.RelativePath!, string.Empty).GetAwaiter().GetResult();
+        Assert(moved.Succeeded && moved.RelativePath == "主循环.txt", "Macro library move to ungrouped failed.");
+        snapshot = service.ScanAsync(root).GetAwaiter().GetResult();
+        Assert(snapshot.Items.Single(item => item.RelativePath == moved.RelativePath).IsFavorite, "Macro library metadata did not follow rename and move.");
+        Assert(snapshot.Items[^1].RelativePath == moved.RelativePath, "Macro library custom order did not follow rename and move.");
+
+        var trashed = service.MoveToTrashAsync(root, moved.RelativePath!).GetAwaiter().GetResult();
+        Assert(trashed.Succeeded && !File.Exists(Path.Combine(root, "主循环.txt")), "Macro library trash did not remove the active item.");
+        snapshot = service.ScanAsync(root).GetAwaiter().GetResult();
+        Assert(snapshot.TrashItems.Count == 1 && snapshot.Items.Count == 2, "Macro library trash scan is incorrect.");
+        var restored = service.RestoreAsync(root, snapshot.TrashItems[0].RelativePath).GetAwaiter().GetResult();
+        Assert(restored.Succeeded && File.Exists(Path.Combine(root, "主循环.txt")), "Macro library restore failed.");
+
+        var settingsService = new MacroLibrarySettingsService(settingsPath);
+        settingsService.SaveAsync(new MacroLibraryAppSettings(root)).GetAwaiter().GetResult();
+        var loaded = settingsService.LoadAsync().GetAwaiter().GetResult();
+        Assert(string.Equals(loaded.Settings.LibraryRootPath, Path.GetFullPath(root), StringComparison.OrdinalIgnoreCase), "Macro library settings did not round trip.");
+        File.WriteAllText(settingsPath, "{bad json");
+        loaded = settingsService.LoadAsync().GetAwaiter().GetResult();
+        Assert(loaded.Warning is not null, "Damaged macro library settings did not produce a warning.");
+
+        var migration = service.MigrateAsync(root, destination).GetAwaiter().GetResult();
+        Assert(migration.Succeeded, "Macro library migration failed.");
+        foreach (var sourceFile in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+        {
+            var relative = Path.GetRelativePath(root, sourceFile);
+            var destinationFile = Path.Combine(destination, relative);
+            Assert(File.Exists(destinationFile), $"Migrated file is missing: {relative}");
+            Assert(
+                SHA256.HashData(File.ReadAllBytes(sourceFile)).AsSpan().SequenceEqual(SHA256.HashData(File.ReadAllBytes(destinationFile))),
+                $"Migrated file hash differs: {relative}");
+        }
+
+        AssertThrows<ArgumentException>(
+            () => service.CreateGroupAsync(root, "..").GetAwaiter().GetResult(),
+            "Macro library accepted a traversal group name.");
+    }
+    finally
+    {
+        Directory.Delete(parent, true);
+    }
+}
+
 static string CreateFixtureDirectory()
 {
     var directory = CreateTemporaryDirectory();
@@ -2209,6 +2705,20 @@ static void Assert(bool condition, string message)
     {
         throw new InvalidOperationException(message);
     }
+}
+
+static void AssertThrows<TException>(Action action, string message) where TException : Exception
+{
+    try
+    {
+        action();
+    }
+    catch (TException)
+    {
+        return;
+    }
+
+    throw new InvalidOperationException(message);
 }
 
 sealed class CancellableThenSuccessfulImporter : IMacroImporter

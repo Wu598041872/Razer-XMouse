@@ -1,0 +1,76 @@
+<Window x:Class="XMacroBridge.App.MacroTextInputDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="输入 X-Mouse 宏文本"
+        Width="820"
+        Height="520"
+        MinWidth="560"
+        MinHeight="360"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="{DynamicResource WindowBackgroundBrush}">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="12" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="16" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock x:Name="DialogHeading"
+                   Style="{StaticResource SectionTitleStyle}"
+                   Text="粘贴或输入 X-Mouse 宏文本" />
+
+        <Border Grid.Row="2"
+                Background="{DynamicResource PanelBrush}"
+                BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="1"
+                CornerRadius="3">
+            <TextBox x:Name="MacroTextBox"
+                     AutomationProperties.Name="X-Mouse 宏文本输入框"
+                     TabIndex="0"
+                     Margin="1"
+                     Padding="12"
+                     Height="Auto"
+                     Background="{DynamicResource PanelBrush}"
+                     BorderThickness="0"
+                     AcceptsReturn="True"
+                     AcceptsTab="False"
+                     FontFamily="{DynamicResource MonospaceFontFamily}"
+                     FontSize="13"
+                     TextWrapping="Wrap"
+                     HorizontalScrollBarVisibility="Disabled"
+                     VerticalScrollBarVisibility="Auto"
+                     SpellCheck.IsEnabled="False"
+                     TextChanged="MacroTextBox_TextChanged" />
+        </Border>
+
+        <Grid Grid.Row="4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="8" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Button Grid.Column="1"
+                    AutomationProperties.Name="取消输入宏文本"
+                    TabIndex="1"
+                    MinWidth="88"
+                    Click="Cancel_Click"
+                    Content="取消"
+                    IsCancel="True"
+                    Style="{StaticResource SecondaryButtonStyle}" />
+            <Button x:Name="ImportButton"
+                    Grid.Column="3"
+                    AutomationProperties.Name="导入输入的宏文本"
+                    TabIndex="2"
+                    MinWidth="112"
+                    Click="Import_Click"
+                    Content="导入到工作区"
+                    IsDefault="True"
+                    IsEnabled="False"
+                    Style="{StaticResource PrimaryButtonStyle}" />
+        </Grid>
+    </Grid>
+</Window>

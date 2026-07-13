@@ -16,6 +16,20 @@ else {
     (Get-Command dotnet -ErrorAction Stop).Source
 }
 
+$appSourceRoot = Join-Path $projectRoot 'src\XMacroBridge.App'
+$hardCodedViewColors = Get-ChildItem -LiteralPath $appSourceRoot -Recurse -File |
+    Where-Object {
+        $_.Extension -in '.xaml', '.cs' -and
+        $_.FullName -ne (Join-Path $appSourceRoot 'Themes\RazerDark.xaml') -and
+        $_.FullName -notlike (Join-Path $appSourceRoot 'Assets\*')
+    } |
+    Select-String -Pattern '#[0-9A-Fa-f]{6,8}'
+if ($hardCodedViewColors) {
+    $details = ($hardCodedViewColors | ForEach-Object { "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" }) -join [Environment]::NewLine
+    throw "应用视图包含未经主题资源管理的硬编码颜色：$([Environment]::NewLine)$details"
+}
+Write-Output 'PASS WPF view semantic color token check'
+
 & $dotnet restore (Join-Path $projectRoot 'XMacroBridge.sln') --ignore-failed-sources
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
@@ -51,10 +65,8 @@ $smokeFixturePaths = @(
 $previousTestMode = $env:XMACROBRIDGE_TEST_MODE
 try {
     $env:XMACROBRIDGE_TEST_MODE = '1'
-    foreach ($theme in @('light', 'dark', 'high-contrast')) {
-        & $dotnet run --project $smokeTestProject -c $Configuration --no-build -- --theme-test $theme @smokeFixturePaths
-        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    }
+    & $dotnet run --project $smokeTestProject -c $Configuration --no-build -- @smokeFixturePaths
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 finally {
     if ($null -eq $previousTestMode) {

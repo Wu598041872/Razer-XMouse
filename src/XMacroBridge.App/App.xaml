@@ -1,131 +1,13 @@
 <Application x:Class="XMacroBridge.App.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:accessibility="clr-namespace:XMacroBridge.App.Accessibility">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <Application.Resources>
-        <SolidColorBrush x:Key="PageBrush" Color="#F5F5F7" />
-        <SolidColorBrush x:Key="CardBrush" Color="#FFFFFFFF" />
-        <SolidColorBrush x:Key="TextPrimaryBrush" Color="#FF1D1D1F" />
-        <SolidColorBrush x:Key="TextSecondaryBrush" Color="#FF6E6E73" />
-        <SolidColorBrush x:Key="DividerBrush" Color="#FFE5E5EA" />
-        <SolidColorBrush x:Key="AccentBrush" Color="#FF005FC7" />
-        <SolidColorBrush x:Key="AccentHoverBrush" Color="#FF004FA8" />
-        <SolidColorBrush x:Key="AccentFillBrush" Color="#FF005FC7" />
-        <SolidColorBrush x:Key="AccentFillTextBrush" Color="#FFFFFFFF" />
-        <SolidColorBrush x:Key="AccentFillHoverBrush" Color="#FF004FA8" />
-        <SolidColorBrush x:Key="AccentFillPressedBrush" Color="#FF003F86" />
-        <SolidColorBrush x:Key="FocusRingBrush" Color="#FF000000" />
-        <SolidColorBrush x:Key="PrimaryFocusRingBrush" Color="#FFFFFFFF" />
-        <SolidColorBrush x:Key="SelectionBrush" Color="#FFEAF3FF" />
-        <SolidColorBrush x:Key="SelectionTextBrush" Color="#FF1D1D1F" />
-        <SolidColorBrush x:Key="ErrorBrush" Color="#FFD70015" />
-        <SolidColorBrush x:Key="WarningBrush" Color="#FFB05A00" />
-        <SolidColorBrush x:Key="SuccessBrush" Color="#FF19753B" />
-        <SolidColorBrush x:Key="SurfaceSecondaryBrush" Color="#FFF2F2F7" />
-        <SolidColorBrush x:Key="CardBorderBrush" Color="#0D000000" />
-        <SolidColorBrush x:Key="AlternateRowBrush" Color="#66F5F5F7" />
-        <SolidColorBrush x:Key="DiagnosticSurfaceBrush" Color="#FFF8F8FA" />
-        <SolidColorBrush x:Key="SuccessSurfaceBrush" Color="#FFEAF7EE" />
-        <SolidColorBrush x:Key="SuccessSurfaceTextBrush" Color="#FF19753B" />
-
-        <Style TargetType="Window">
-            <Setter Property="FontFamily" Value="Segoe UI Variable Text, Microsoft YaHei UI" />
-            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
-            <Setter Property="TextOptions.TextFormattingMode" Value="Display" />
-            <Setter Property="TextOptions.TextRenderingMode" Value="ClearType" />
-        </Style>
-
-        <Style x:Key="CardStyle" TargetType="Border">
-            <Setter Property="Background" Value="{DynamicResource CardBrush}" />
-            <Setter Property="CornerRadius" Value="18" />
-            <Setter Property="BorderBrush" Value="{DynamicResource CardBorderBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
-        </Style>
-
-        <Style x:Key="SectionTitleStyle" TargetType="TextBlock">
-            <Setter Property="FontFamily" Value="Segoe UI Variable Display, Microsoft YaHei UI" />
-            <Setter Property="FontSize" Value="17" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-        </Style>
-
-        <Style x:Key="CaptionStyle" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
-        </Style>
-
-        <Style x:Key="BaseButtonStyle" TargetType="Button">
-            <Setter Property="MinHeight" Value="38" />
-            <Setter Property="Padding" Value="16,8" />
-            <Setter Property="FontSize" Value="13" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
-            <Setter Property="accessibility:FocusVisualAssist.FocusRingBrush" Value="{DynamicResource FocusRingBrush}" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="ButtonBorder"
-                                Padding="{TemplateBinding Padding}"
-                                Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="10">
-                            <ContentPresenter HorizontalAlignment="Center"
-                                              VerticalAlignment="Center" />
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsKeyboardFocused" Value="True">
-                                <Setter TargetName="ButtonBorder"
-                                        Property="BorderBrush"
-                                        Value="{Binding RelativeSource={RelativeSource TemplatedParent}, Path=(accessibility:FocusVisualAssist.FocusRingBrush)}" />
-                                <Setter TargetName="ButtonBorder" Property="BorderThickness" Value="2" />
-                            </Trigger>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter TargetName="ButtonBorder" Property="Opacity" Value="0.42" />
-                                <Setter Property="Cursor" Value="Arrow" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <Style x:Key="PrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource BaseButtonStyle}">
-            <Setter Property="Background" Value="{DynamicResource AccentFillBrush}" />
-            <Setter Property="Foreground" Value="{DynamicResource AccentFillTextBrush}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource AccentFillBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="accessibility:FocusVisualAssist.FocusRingBrush" Value="{DynamicResource PrimaryFocusRingBrush}" />
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="{DynamicResource AccentFillHoverBrush}" />
-                    <Setter Property="BorderBrush" Value="{DynamicResource AccentFillHoverBrush}" />
-                </Trigger>
-                <Trigger Property="IsPressed" Value="True">
-                    <Setter Property="Background" Value="{DynamicResource AccentFillPressedBrush}" />
-                    <Setter Property="BorderBrush" Value="{DynamicResource AccentFillPressedBrush}" />
-                </Trigger>
-            </Style.Triggers>
-        </Style>
-
-        <Style x:Key="SecondaryButtonStyle" TargetType="Button" BasedOn="{StaticResource BaseButtonStyle}">
-            <Setter Property="Background" Value="{DynamicResource SurfaceSecondaryBrush}" />
-            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource DividerBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="{DynamicResource SelectionBrush}" />
-                    <Setter Property="Foreground" Value="{DynamicResource SelectionTextBrush}" />
-                    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
-                </Trigger>
-                <Trigger Property="IsPressed" Value="True">
-                    <Setter Property="Background" Value="{DynamicResource SelectionBrush}" />
-                    <Setter Property="Foreground" Value="{DynamicResource SelectionTextBrush}" />
-                    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
-                    <Setter Property="BorderThickness" Value="2" />
-                </Trigger>
-            </Style.Triggers>
-        </Style>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="Themes/RazerDark.xaml" />
+                <ResourceDictionary Source="Themes/TablerIcons.xaml" />
+                <ResourceDictionary Source="Themes/Controls.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
     </Application.Resources>
 </Application>

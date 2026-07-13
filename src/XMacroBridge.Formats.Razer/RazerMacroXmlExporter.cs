@@ -32,18 +32,6 @@ public sealed class RazerMacroXmlExporter : IMacroExporter
                 key.Sequence));
         }
 
-        foreach (var key in document.Events.OfType<KeyMacroEvent>().Where(item => !item.IsExtended))
-        {
-            if (!RazerInputCodeConverter.TryVirtualKeyToMakeCode(key.VirtualKey, out _))
-            {
-                diagnostics.Add(new ConversionDiagnostic(
-                    "RAZER_EXPORT_KEY_UNSUPPORTED",
-                    DiagnosticSeverity.Error,
-                    $"无法将虚拟键码 {key.VirtualKey} 转换为雷云 4 所需的键盘扫描码。",
-                    key.Sequence));
-            }
-        }
-
         foreach (var mouse in document.Events.OfType<MouseMacroEvent>())
         {
             if (mouse.Button is not MouseButton.Left and not MouseButton.Right)
@@ -168,14 +156,13 @@ public sealed class RazerMacroXmlExporter : IMacroExporter
     {
         var id = GetEventId(key.VirtualKey, key.Transition, activeIds, ref nextId);
         var state = key.Transition == InputTransition.Down ? 0 : 1;
-        _ = RazerInputCodeConverter.TryVirtualKeyToMakeCode(key.VirtualKey, out var makeCode);
         return new XElement(
             "MacroEvent",
             new XElement("Type", 1),
             new XElement("Id", id),
             new XElement(
                 "KeyEvent",
-                new XElement("Makecode", makeCode),
+                new XElement("Makecode", key.VirtualKey),
                 new XElement("State", state)),
             new XElement("flag", state),
             new XElement("selected", "false"),
@@ -189,7 +176,7 @@ public sealed class RazerMacroXmlExporter : IMacroExporter
     {
         var id = GetEventId(mouse.Button, mouse.Transition, activeIds, ref nextId);
         var state = mouse.Transition == InputTransition.Down ? 0 : 1;
-        var buttonCode = mouse.Button == MouseButton.Left ? 1 : 2;
+        var buttonCode = mouse.Button == MouseButton.Left ? 0 : 1;
         return new XElement(
             "MacroEvent",
             new XElement("Type", 2),

@@ -1,6 +1,6 @@
-# XMacro Bridge 0.1.0-preview.4
+# XMacro Bridge 1.1.0
 
-这是 Windows 10/11 x64 自包含绿色预览版，用于在 Razer Synapse 雷云 4 与 X-Mouse Button Control（XMBC）之间离线转换和编辑键鼠宏。
+这是 Windows 10/11 x64 自包含绿色正式版，用于在 Razer Synapse 雷云 4 与 X-Mouse Button Control（XMBC）之间离线转换和编辑键鼠宏。
 
 ## 开始使用
 
@@ -14,7 +14,7 @@
 ## 重要提示
 
 - 软件完全离线运行，不会修改导入的原始宏文件。
-- 这是预览版本，请保留原始备份，并先在安全环境测试转换结果。
+- 请保留原始备份，并先在安全环境测试重要宏的转换结果。
 - 不生成新的 `.synapse4` 整包；XMBC 输出为模拟按键宏文本。
 - 遇到错误诊断时软件会阻止导出，不会静默丢弃未知事件。
 

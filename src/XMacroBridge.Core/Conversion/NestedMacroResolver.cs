@@ -150,7 +150,7 @@ public sealed class NestedMacroResolver : INestedMacroResolver
             return guidTarget;
         }
 
-        if (reference.TargetIndex is { } index && index >= 0 && index < documents.Count)
+        if (reference.TargetIndex is { } index && index >= 1 && index <= documents.Count)
         {
             if (reference.TargetGuid is not null)
             {
@@ -161,7 +161,7 @@ public sealed class NestedMacroResolver : INestedMacroResolver
                     reference.Sequence));
             }
 
-            return documents[index];
+            return documents[index - 1];
         }
 
         diagnostics.Add(new ConversionDiagnostic(

@@ -1,3 +1,4 @@
+using System.Text;
 using XMacroBridge.Application.Formats;
 using XMacroBridge.Core.Diagnostics;
 using XMacroBridge.Core.Models;
@@ -92,6 +93,62 @@ public sealed class MacroImportService
 
         progress?.Report((files.Count, files.Count, string.Empty));
         return new ImportBatchResult(documents, diagnostics, processedFiles);
+    }
+
+    public async Task<ImportBatchResult> ImportTextAsync(
+        string text,
+        string sourceName = "粘贴的 X-Mouse 宏.txt",
+        MacroImportOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        options ??= new MacroImportOptions();
+        sourceName = string.IsNullOrWhiteSpace(sourceName) ? "粘贴的 X-Mouse 宏.txt" : Path.GetFileName(sourceName);
+
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return new ImportBatchResult(
+                [],
+                [new ConversionDiagnostic(
+                    "IMPORT_TEXT_EMPTY",
+                    DiagnosticSeverity.Error,
+                    "请输入 X-Mouse 宏文本后再导入。",
+                    SourceContext: sourceName)],
+                []);
+        }
+
+        var byteCount = Encoding.UTF8.GetByteCount(text);
+        if (byteCount > options.MaximumBatchBytes)
+        {
+            return new ImportBatchResult(
+                [],
+                [new ConversionDiagnostic(
+                    "IMPORT_BATCH_SIZE_LIMIT",
+                    DiagnosticSeverity.Error,
+                    $"输入文本超过 {options.MaximumBatchBytes} 字节上限。",
+                    SourceContext: sourceName)],
+                []);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        var bytes = Encoding.UTF8.GetBytes(text);
+        var headerLength = Math.Min(options.HeaderProbeBytes, bytes.Length);
+        var importer = registry.FindImporter(bytes.AsSpan(0, headerLength), sourceName);
+        if (importer is null)
+        {
+            return new ImportBatchResult(
+                [],
+                [new ConversionDiagnostic(
+                    "IMPORT_FORMAT_UNSUPPORTED",
+                    DiagnosticSeverity.Error,
+                    "无法识别输入的 X-Mouse 宏文本。",
+                    SourceContext: sourceName)],
+                []);
+        }
+
+        await using var stream = new MemoryStream(bytes, writable: false);
+        var result = await importer.ImportAsync(stream, sourceName, cancellationToken).ConfigureAwait(false);
+        return new ImportBatchResult(result.Documents, result.Diagnostics, []);
     }
 
     private static IReadOnlyList<string> ExpandInputPaths(

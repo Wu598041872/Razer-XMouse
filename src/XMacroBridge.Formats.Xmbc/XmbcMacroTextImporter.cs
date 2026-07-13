@@ -52,7 +52,16 @@ public sealed class XmbcMacroTextImporter : IMacroImporter
             var diagnostics = new List<ConversionDiagnostic>();
             var events = Parse(text, diagnostics, limits);
             var name = Path.GetFileNameWithoutExtension(sourceName) ?? "XMBC 宏文本";
-            var document = new MacroDocument(CreateDeterministicGuid(bytes), name, events, FormatId, sourceName);
+            var document = new MacroDocument(
+                CreateDeterministicGuid(bytes),
+                name,
+                events,
+                FormatId,
+                sourceName,
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["xmbc.rawText"] = text,
+                });
             return new MacroImportResult([document], diagnostics);
         }
         catch (OperationCanceledException)
@@ -110,14 +119,7 @@ public sealed class XmbcMacroTextImporter : IMacroImporter
                 }
                 else if (TryParseHoldToken(token, out var holdMilliseconds))
                 {
-                    if (explicitTransition is not null)
-                    {
-                        AddUnknown(result, diagnostics, ref sequence, "{" + token + "}", "HOLD/HOLDMS 不能与持续 PRESS/RELEASE 模式组合");
-                    }
-                    else
-                    {
-                        pendingHoldMilliseconds = holdMilliseconds;
-                    }
+                    pendingHoldMilliseconds = holdMilliseconds;
                 }
                 else if (TryParseModifier(token, out var modifierKey, out var modifierName, out var modifierExtended))
                 {
@@ -155,6 +157,7 @@ public sealed class XmbcMacroTextImporter : IMacroImporter
                         explicitTransition,
                         pendingModifiers,
                         ref pendingHoldMilliseconds);
+                    explicitTransition = null;
                 }
                 else if (TryParseScanCodeToken(token, out var scanCode, out var scanCodeExtended))
                 {
@@ -166,6 +169,7 @@ public sealed class XmbcMacroTextImporter : IMacroImporter
                         explicitTransition,
                         pendingModifiers,
                         ref pendingHoldMilliseconds);
+                    explicitTransition = null;
                 }
                 else if (TryParseRandomDelay(token, out var minimumDelay, out var maximumDelay))
                 {
@@ -217,6 +221,7 @@ public sealed class XmbcMacroTextImporter : IMacroImporter
                     explicitTransition,
                     pendingModifiers,
                     ref pendingHoldMilliseconds);
+                explicitTransition = null;
             }
             else
             {
@@ -274,12 +279,22 @@ public sealed class XmbcMacroTextImporter : IMacroImporter
     {
         if (explicitTransition is { } transition)
         {
+            if (transition == InputTransition.Up && pendingHoldMilliseconds is { } releaseHold)
+            {
+                events.Add(new DelayMacroEvent(sequence++, releaseHold));
+            }
+
             foreach (var modifier in pendingModifiers)
             {
                 events.Add(new KeyMacroEvent(sequence++, modifier.VirtualKey, transition, modifier.Name, modifier.IsExtended));
             }
 
             events.Add(new KeyMacroEvent(sequence++, virtualKey, transition, displayName, isExtended));
+            if (transition == InputTransition.Down && pendingHoldMilliseconds is { } pressHold)
+            {
+                events.Add(new DelayMacroEvent(sequence++, pressHold));
+            }
+
             pendingModifiers.Clear();
             pendingHoldMilliseconds = null;
             return;
@@ -318,12 +333,21 @@ public sealed class XmbcMacroTextImporter : IMacroImporter
     {
         if (explicitTransition is { } transition)
         {
+            if (transition == InputTransition.Up && pendingHoldMilliseconds is { } releaseHold)
+            {
+                events.Add(new DelayMacroEvent(sequence++, releaseHold));
+            }
+
             foreach (var modifier in pendingModifiers)
             {
                 events.Add(new KeyMacroEvent(sequence++, modifier.VirtualKey, transition, modifier.Name, modifier.IsExtended));
             }
 
             events.Add(new ScanCodeMacroEvent(sequence++, scanCode, transition, isExtended));
+            if (transition == InputTransition.Down && pendingHoldMilliseconds is { } pressHold)
+            {
+                events.Add(new DelayMacroEvent(sequence++, pressHold));
+            }
             pendingModifiers.Clear();
             pendingHoldMilliseconds = null;
             return;

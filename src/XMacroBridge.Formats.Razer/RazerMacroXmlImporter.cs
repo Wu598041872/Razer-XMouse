@@ -51,7 +51,6 @@ public sealed class RazerMacroXmlImporter : IMacroImporter
             await CopyWithLimitAsync(input, buffer, limits.MaximumFileBytes, cancellationToken).ConfigureAwait(false);
             var bytes = buffer.ToArray();
             TextEncodingDetector.ValidateXmlEncoding(bytes);
-            var documentId = CreateDeterministicGuid(bytes);
             buffer.Position = 0;
 
             var settings = new XmlReaderSettings
@@ -81,6 +80,8 @@ public sealed class RazerMacroXmlImporter : IMacroImporter
                     DiagnosticSeverity.Warning,
                     "宏缺少名称，已使用文件名或默认名称。"));
             }
+
+            var documentId = ParseDocumentId(root, bytes, diagnostics, name);
 
             var parsedEvents = ParseEvents(root, diagnostics, name, limits);
             var events = RazerLoopExpander.Expand(parsedEvents, diagnostics, name, limits, "RAZER");
@@ -115,7 +116,8 @@ public sealed class RazerMacroXmlImporter : IMacroImporter
         }
 
         var result = new List<MacroEvent>();
-        var mouseButtonEncoding = DetectMouseButtonEncoding(container);
+        var usesVersion4NativeEncoding = string.Equals(GetChildValue(root, "Version"), "4", StringComparison.Ordinal);
+        var mouseButtonEncoding = DetectMouseButtonEncoding(root, container);
         long sequence = 0;
         var sourceEventIndex = 0;
         foreach (var element in container.Elements().Where(item =>
@@ -154,7 +156,7 @@ public sealed class RazerMacroXmlImporter : IMacroImporter
                         result.Add(ParseDelay(element, eventSequence, diagnostics, macroName));
                         break;
                     case "1":
-                        result.Add(ParseKey(element, eventSequence));
+                        result.Add(ParseKey(element, eventSequence, usesVersion4NativeEncoding));
                         break;
                     case "2":
                         result.Add(ParseMouse(element, eventSequence, mouseButtonEncoding));
@@ -262,11 +264,21 @@ public sealed class RazerMacroXmlImporter : IMacroImporter
         return new DelayMacroEvent(sequence, milliseconds);
     }
 
-    private static KeyMacroEvent ParseKey(XElement element, long sequence)
+    private static KeyMacroEvent ParseKey(XElement element, long sequence, bool usesVersion4NativeEncoding)
     {
         var keyEvent = GetRequiredChild(element, "KeyEvent");
         var makeCode = int.Parse(GetRequiredChildValue(keyEvent, "Makecode"), CultureInfo.InvariantCulture);
-        if (!RazerInputCodeConverter.TryMakeCodeToVirtualKey(makeCode, out var virtualKey))
+        int virtualKey;
+        if (usesVersion4NativeEncoding)
+        {
+            if (makeCode is < 1 or > 255)
+            {
+                throw new FormatException($"雷云 Version 4 虚拟键码 {makeCode} 不在 1–255 范围内。");
+            }
+
+            virtualKey = makeCode;
+        }
+        else if (!RazerInputCodeConverter.TryMakeCodeToVirtualKey(makeCode, out virtualKey))
         {
             throw new FormatException($"雷云键盘扫描码 {makeCode} 无法转换为 Windows 虚拟键码。");
         }
@@ -294,8 +306,13 @@ public sealed class RazerMacroXmlImporter : IMacroImporter
         return new MouseMacroEvent(sequence, button, transition);
     }
 
-    private static RazerMouseButtonEncoding DetectMouseButtonEncoding(XElement container)
+    private static RazerMouseButtonEncoding DetectMouseButtonEncoding(XElement root, XElement container)
     {
+        if (string.Equals(GetChildValue(root, "Version"), "4", StringComparison.Ordinal))
+        {
+            return RazerMouseButtonEncoding.ZeroBased;
+        }
+
         foreach (var element in container.Elements().Where(item =>
                      string.Equals(item.Name.LocalName, "MacroEvent", StringComparison.OrdinalIgnoreCase) &&
                      GetChildValue(item, "Type") == "2"))
@@ -379,6 +396,30 @@ public sealed class RazerMacroXmlImporter : IMacroImporter
         Span<byte> hash = stackalloc byte[32];
         SHA256.HashData(bytes, hash);
         return new Guid(hash[..16]);
+    }
+
+    private static Guid ParseDocumentId(
+        XElement root,
+        ReadOnlySpan<byte> bytes,
+        ICollection<ConversionDiagnostic> diagnostics,
+        string macroName)
+    {
+        var value = GetChildValue(root, "Guid");
+        if (Guid.TryParse(value, out var embeddedGuid))
+        {
+            return embeddedGuid;
+        }
+
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            diagnostics.Add(new ConversionDiagnostic(
+                "RAZER_GUID_INVALID",
+                DiagnosticSeverity.Warning,
+                $"宏“{macroName}”的根 Guid 无效，已使用文件内容生成稳定标识。",
+                SourceContext: macroName));
+        }
+
+        return CreateDeterministicGuid(bytes);
     }
 
     private static MacroImportResult Failure(string code, string message, string? sourceName) =>

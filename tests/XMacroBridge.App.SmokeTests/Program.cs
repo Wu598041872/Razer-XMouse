@@ -1,9 +1,12 @@
 using System.Windows;
+using System.IO;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Shell;
 using System.Windows.Threading;
 using System.Runtime.InteropServices;
 using System.Reflection;
@@ -11,7 +14,9 @@ using System.Text.RegularExpressions;
 using XMacroBridge.Core.Diagnostics;
 using XMacroBridge.Core.Models;
 using XMacroBridge.Presentation.Workspace;
+using XMacroBridge.Presentation.Library;
 using MacroMouseButton = XMacroBridge.Core.Models.MouseButton;
+using Ellipse = System.Windows.Shapes.Ellipse;
 
 namespace XMacroBridge.App.SmokeTests;
 
@@ -21,22 +26,20 @@ internal static class Program
     private static int Main(string[] args)
     {
         var failures = new List<string>();
-        VerifyThemeOverrideIsolation();
-        var requestedTheme = ReadExpectedTheme(args);
-        var expectedTheme = SystemParameters.HighContrast ? "high-contrast" : requestedTheme;
+        VerifyKeyboardCaptureNormalization();
         var application = new XMacroBridge.App.App();
         application.InitializeComponent();
         application.Startup += (_, _) =>
         {
             _ = application.Dispatcher.BeginInvoke(
                 DispatcherPriority.ApplicationIdle,
-                async () => await VerifyWorkspaceAsync(application, failures, expectedTheme));
+                async () => await VerifyWorkspaceAsync(application, failures));
         };
 
         var exitCode = application.Run();
         if (failures.Count == 0 && exitCode == 0)
         {
-            Console.WriteLine($"PASS WPF workspace startup, accessibility and {expectedTheme} theme smoke test");
+            Console.WriteLine("PASS WPF workspace startup, accessibility and fixed Razer dark style smoke test");
             return 0;
         }
 
@@ -50,8 +53,7 @@ internal static class Program
 
     private static async Task VerifyWorkspaceAsync(
         System.Windows.Application application,
-        ICollection<string> failures,
-        string expectedTheme)
+        ICollection<string> failures)
     {
         try
         {
@@ -82,6 +84,7 @@ internal static class Program
             var eventTimeline = Find<DataGrid>(window, "EventTimeline");
             var exportButton = Find<Button>(window, "ExportButton");
             var importFilesButton = Find<Button>(window, "ImportFilesButton");
+            var importTextButton = Find<Button>(window, "ImportTextButton");
             var cancelButton = Find<Button>(window, "CancelButton");
             var severityFilter = Find<ComboBox>(window, "DiagnosticSeverityFilter");
             var scopeFilter = Find<ComboBox>(window, "DiagnosticScopeFilter");
@@ -89,61 +92,92 @@ internal static class Program
             var targetFormat = Find<ComboBox>(window, "TargetFormatSelector");
             var progress = Find<ProgressBar>(window, "OperationProgress");
             var workspaceScroll = Find<ScrollViewer>(window, "WorkspaceScrollViewer");
+            var macroContent = Find<Grid>(window, "MacroContent");
             var diagnosticScroll = Find<ScrollViewer>(window, "DiagnosticScrollViewer");
             var statusText = Find<TextBlock>(window, "StatusTextBlock");
-            var delayMilliseconds = Find<TextBox>(window, "DelayMillisecondsTextBox");
-            var applyDelay = Find<Button>(window, "ApplyDelayButton");
-            var delayScalePercent = Find<TextBox>(window, "DelayScalePercentTextBox");
-            var scaleDelays = Find<Button>(window, "ScaleDelaysButton");
-            var undo = Find<Button>(window, "UndoButton");
-            var redo = Find<Button>(window, "RedoButton");
-            var newDelayMilliseconds = Find<TextBox>(window, "NewDelayMillisecondsTextBox");
-            var insertDelay = Find<Button>(window, "InsertDelayButton");
-            var copyEvent = Find<Button>(window, "CopyEventButton");
-            var deleteEvent = Find<Button>(window, "DeleteEventButton");
-            var moveEventUp = Find<Button>(window, "MoveEventUpButton");
-            var moveEventDown = Find<Button>(window, "MoveEventDownButton");
-            var virtualKey = Find<TextBox>(window, "VirtualKeyTextBox");
-            var keyTransition = Find<ComboBox>(window, "KeyTransitionSelector");
-            var extendedKey = Find<CheckBox>(window, "ExtendedKeyCheckBox");
-            var insertKeyEvent = Find<Button>(window, "InsertKeyEventButton");
-            var mouseButton = Find<ComboBox>(window, "MouseButtonSelector");
-            var mouseTransition = Find<ComboBox>(window, "MouseTransitionSelector");
-            var insertMouseEvent = Find<Button>(window, "InsertMouseEventButton");
-            var eventSearch = Find<TextBox>(window, "EventSearchTextBox");
-            var findPreviousEvent = Find<Button>(window, "FindPreviousEventButton");
-            var findNextEvent = Find<Button>(window, "FindNextEventButton");
-            var eventSearchResult = Find<TextBlock>(window, "EventSearchResultTextBlock");
-
-            viewModel.SelectedEvent = viewModel.Events.FirstOrDefault(item => item.IsFixedDelay)
-                ?? throw new InvalidOperationException("The selected smoke-test macro has no fixed delay to edit.");
+            var splitter = Find<GridSplitter>(window, "TimelineDiagnosticSplitter");
+            var virtualKeyTextBox = Find<TextBox>(window, "VirtualKeyTextBox");
+            var delayScaleTextBox = Find<TextBox>(window, "DelayScalePercentTextBox");
+            var scaleDelaysButton = Find<Button>(window, "ScaleDelaysButton");
+            var selectedDelayTextBox = Find<TextBox>(window, "DelayMillisecondsTextBox");
+            var applyDelayButton = Find<Button>(window, "ApplyDelayButton");
+            var nestedMacroTarget = Find<ComboBox>(window, "NestedMacroTargetSelector");
+            var bindNestedMacro = Find<Button>(window, "BindNestedMacroButton");
+            var insertNestedMacro = Find<Button>(window, "InsertNestedMacroButton");
+            var nestedMacroToolbar = Find<Border>(window, "NestedMacroToolbar");
+            var minimizeWindow = Find<Button>(window, "WindowMinimizeButton");
+            var maximizeRestoreWindow = Find<Button>(window, "WindowMaximizeRestoreButton");
+            var closeWindow = Find<Button>(window, "WindowCloseButton");
+            var brandNavigationLogo = Find<Image>(window, "BrandNavigationLogo");
+            var brandSettingsLogo = Find<Image>(window, "BrandSettingsLogo");
+            var macroNavigation = Find<Button>(window, "MacroNavigationButton");
+            var libraryNavigation = Find<Button>(window, "LibraryNavigationButton");
+            var settingsNavigation = Find<Button>(window, "SettingsNavigationButton");
+            var libraryContent = Find<XMacroBridge.App.MacroLibraryView>(window, "MacroLibraryContent");
+            var workspaceToolbar = Find<Border>(window, "WorkspaceToolbar");
+            var libraryToolbar = Find<Border>(window, "LibraryToolbar");
+            var settingsToolbar = Find<Border>(window, "SettingsToolbar");
+            var settingsContent = Find<ScrollViewer>(window, "SettingsContent");
+            var eventSearchHost = Find<StackPanel>(window, "EventSearchHost");
+            var timelineSelectionToolbar = Find<Border>(window, "TimelineSelectionToolbar");
+            var timelineInsertionToolbar = Find<Border>(window, "TimelineInsertionToolbar");
+            var noMacroEmptyState = Find<StackPanel>(window, "NoMacroEmptyState");
+            var emptyMacroState = Find<StackPanel>(window, "EmptyMacroState");
+            var diagnosticPanel = Find<Border>(window, "DiagnosticPanel");
+            var workspaceStatusBar = Find<Border>(window, "WorkspaceStatusBar");
+            var currentMacroLabel = Find<TextBlock>(window, "CurrentMacroLabel");
+            var currentMacroValueText = Find<TextBlock>(window, "CurrentMacroValueText");
+            var targetFormatLabel = Find<TextBlock>(window, "TargetFormatLabel");
 
             window.UpdateLayout();
+            VerifyTargetFormatBinding(viewModel, targetFormat);
 
             Assert(macroList.Items.Count == 8, "Macro list binding did not expose eight fixed fixture items.");
             Assert(eventTimeline.Items.Count == viewModel.SelectedMacro!.Events.Count, "Event timeline is out of sync with the selection.");
+            Assert(eventTimeline.HeadersVisibility == DataGridHeadersVisibility.None, "Synapse-style timeline should not show table headers.");
+            Assert(eventTimeline.Columns.Count == 1, "Synapse-style timeline should use one full-width event column.");
+            Assert(eventTimeline.Columns[0] is DataGridTemplateColumn, "Synapse-style timeline column should use an event template.");
+            Assert(eventTimeline.Columns[0].ActualWidth > 0, "Synapse-style timeline event column has no measured width.");
+            Assert(eventTimeline.SelectionMode == DataGridSelectionMode.Extended, "Timeline must support extended multi-selection.");
             Assert(exportButton.IsEnabled, "Export should be enabled for the selected valid fixture.");
             Assert(importFilesButton.IsEnabled, "Import should be enabled after startup import completes.");
+            Assert(importTextButton.IsEnabled, "Text import should be enabled after startup import completes.");
             Assert(!cancelButton.IsEnabled, "Cancel should be disabled while idle.");
             Assert(severityFilter.Items.Count == 4, "Severity filter options are incomplete.");
             Assert(scopeFilter.Items.Count >= 2, "Source filter options were not populated.");
+            Assert(targetFormat.Text == viewModel.SelectedExportFormat.DisplayName, "Target format selector must keep its normal display text.");
+            Assert(severityFilter.Text == viewModel.SelectedDiagnosticSeverity.DisplayName, "Severity selector must not display an option object type name.");
+            Assert(scopeFilter.Text == viewModel.SelectedDiagnosticScope.DisplayName, "Diagnostic scope selector must not display an option object type name.");
             Assert(diagnosticGroups.Items.Count >= 1, "Diagnostic grouping binding is empty.");
-            Assert(applyDelay.IsEnabled, "Selected fixed delay should enable the apply action.");
-            Assert(scaleDelays.IsEnabled, "A macro with delays should enable batch scaling.");
-            Assert(!undo.IsEnabled && !redo.IsEnabled, "A new workspace should have empty edit history.");
-            Assert(insertDelay.IsEnabled, "A macro below the event limit should allow delay insertion.");
-            Assert(copyEvent.IsEnabled && deleteEvent.IsEnabled, "Selected event should enable copy and delete.");
-            Assert(moveEventUp.IsEnabled || moveEventDown.IsEnabled, "A selected event in a multi-event macro should allow movement.");
-            Assert(keyTransition.Items.Count == 2 && mouseTransition.Items.Count == 2, "Input transition options are incomplete.");
-            Assert(mouseButton.Items.Count == 9, "Mouse button options are incomplete.");
-            Assert(insertKeyEvent.IsEnabled && insertMouseEvent.IsEnabled, "Parameterized insertion should be enabled below the event limit.");
-            Assert(!findPreviousEvent.IsEnabled && !findNextEvent.IsEnabled, "Empty event search should disable navigation.");
-            Assert(eventSearchResult.Text == "未搜索", "Empty event search summary is incorrect.");
+            Assert(splitter.ResizeDirection == GridResizeDirection.Rows, "Timeline/report splitter should resize rows.");
+            Assert(splitter.ResizeBehavior == GridResizeBehavior.PreviousAndNext, "Timeline/report splitter should resize both adjacent regions.");
+            Assert(delayScaleTextBox.Visibility == Visibility.Collapsed && scaleDelaysButton.Visibility == Visibility.Collapsed, "All-delay scaling controls should be removed from the visible toolbar.");
+            Assert(selectedDelayTextBox.Visibility == Visibility.Collapsed && applyDelayButton.Visibility == Visibility.Collapsed, "Selected-delay controls should be removed from the visible toolbar.");
+            Assert(window.Icon is not null, "The main window application icon was not loaded.");
+            Assert(brandNavigationLogo.Source is not null, "The navigation brand logo was not loaded.");
+            Assert(brandSettingsLogo.Source is not null, "The settings brand logo was not loaded.");
+            var expectedApplicationVersion = typeof(XMacroBridge.App.MainWindow).Assembly
+                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
+                .InformationalVersion;
+            Assert(window.ApplicationVersion == expectedApplicationVersion, "Settings version binding does not expose the application informational version.");
+            VerifyProgressiveWorkspaceStates(
+                window,
+                viewModel,
+                eventSearchHost,
+                timelineSelectionToolbar,
+                timelineInsertionToolbar,
+                noMacroEmptyState,
+                emptyMacroState,
+                diagnosticPanel,
+                workspaceStatusBar,
+                Find<Button>(window, "EditEventButton"),
+                Find<Button>(window, "DeleteEventButton"));
             VerifyAccessibilityNames(
                 macroList,
                 eventTimeline,
                 exportButton,
                 importFilesButton,
+                importTextButton,
                 cancelButton,
                 severityFilter,
                 scopeFilter,
@@ -153,97 +187,127 @@ internal static class Program
                 workspaceScroll,
                 diagnosticScroll,
                 statusText,
-                delayMilliseconds,
-                applyDelay,
-                delayScalePercent,
-                scaleDelays,
-                undo,
-                redo,
-                newDelayMilliseconds,
-                insertDelay,
-                copyEvent,
-                deleteEvent,
-                moveEventUp,
-                moveEventDown,
-                virtualKey,
-                keyTransition,
-                extendedKey,
-                insertKeyEvent,
-                mouseButton,
-                mouseTransition,
-                insertMouseEvent,
-                eventSearch,
-                findPreviousEvent,
-                findNextEvent,
-                eventSearchResult);
+                splitter);
             VerifyDpiAwareness(window);
-            VerifyCompactLayout(workspaceScroll);
+            VerifyWindowChrome(window, minimizeWindow, maximizeRestoreWindow, closeWindow);
+            Assert(
+                !Descendants(window).OfType<TextBlock>().Any(item => item.Text == "本地离线") &&
+                !Descendants(window).OfType<Ellipse>().Any(),
+                "Title bar local-offline label and green status dot should be removed.");
+            VerifyTitleBarNavigationStability(window, macroNavigation, libraryNavigation, settingsNavigation);
+            VerifyControlAlignment(
+                window,
+                Find<Border>(window, "CurrentMacroValueHost"),
+                targetFormat,
+                exportButton,
+                Find<TextBox>(window, "NewDelayMillisecondsTextBox"),
+                Find<Button>(window, "InsertDelayButton"),
+                Find<TextBox>(window, "VirtualKeyTextBox"),
+                Find<ComboBox>(window, "KeyTransitionSelector"),
+                Find<Button>(window, "InsertKeyEventButton"),
+                severityFilter,
+                scopeFilter);
+            VerifyHeaderFieldAlignment(
+                application,
+                window,
+                viewModel,
+                currentMacroLabel,
+                Find<Border>(window, "CurrentMacroValueHost"),
+                currentMacroValueText,
+                targetFormatLabel,
+                targetFormat,
+                severityFilter);
+            VerifyParameterInputAlignment(
+                Find<TextBox>(window, "NewDelayMillisecondsTextBox"),
+                virtualKeyTextBox);
+            VerifyVirtualKeyCapture(window, viewModel, virtualKeyTextBox);
+            VerifyGreenHighlightForeground(
+                application,
+                exportButton,
+                importFilesButton);
+            VerifyNormalTextForeground(application, window);
+            VerifyCompactLayout(
+                workspaceScroll,
+                macroContent,
+                Find<TextBlock>(window, "EventSearchResultTextBlock"),
+                scopeFilter,
+                cancelButton,
+                insertNestedMacro);
+            VerifyLibraryNavigation(
+                window,
+                macroNavigation,
+                libraryNavigation,
+                settingsNavigation,
+                libraryContent,
+                workspaceScroll,
+                workspaceToolbar,
+                libraryToolbar,
+                settingsToolbar,
+                settingsContent);
+            VerifyTimelineResponsiveResize(window, viewModel, eventTimeline);
             VerifyKeyboardContract(
                 importFilesButton,
                 Find<Button>(window, "ImportFolderButton"),
+                importTextButton,
                 macroList,
                 targetFormat,
                 exportButton,
                 eventTimeline,
-                newDelayMilliseconds,
-                insertDelay,
-                copyEvent,
-                deleteEvent,
-                moveEventUp,
-                moveEventDown,
-                virtualKey,
-                keyTransition,
-                extendedKey,
-                insertKeyEvent,
-                mouseButton,
-                mouseTransition,
-                insertMouseEvent,
-                delayMilliseconds,
-                applyDelay,
-                delayScalePercent,
-                scaleDelays,
-                undo,
-                redo,
-                eventSearch,
-                findPreviousEvent,
-                findNextEvent,
+                splitter,
                 severityFilter,
                 scopeFilter,
                 diagnosticScroll,
                 cancelButton);
+            VerifyMacroTextDialog(window);
+            VerifyMacroLibraryEntryDialog(window);
+            VerifyMacroRenameUi(window, macroList);
+            VerifyTimelineMultiSelectionUi(window, viewModel, eventTimeline);
+            viewModel.SelectedEvent = viewModel.Events.First(item => item.Event is DelayMacroEvent);
             VerifyEditingBindings(
                 viewModel,
                 window,
                 eventTimeline,
-                delayMilliseconds,
-                newDelayMilliseconds,
-                insertDelay,
-                copyEvent,
-                deleteEvent,
-                moveEventUp,
-                moveEventDown,
-                undo,
-                redo);
+                Find<TextBox>(window, "DelayMillisecondsTextBox"),
+                Find<TextBox>(window, "NewDelayMillisecondsTextBox"),
+                Find<Button>(window, "InsertDelayButton"),
+                Find<Button>(window, "CopyEventButton"),
+                Find<Button>(window, "DeleteEventButton"),
+                Find<Button>(window, "MoveEventUpButton"),
+                Find<Button>(window, "MoveEventDownButton"),
+                Find<Button>(window, "UndoButton"),
+                Find<Button>(window, "RedoButton"));
             VerifyParameterizedInsertionBindings(
                 viewModel,
                 window,
-                virtualKey,
-                keyTransition,
-                extendedKey,
-                insertKeyEvent,
-                mouseButton,
-                mouseTransition,
-                insertMouseEvent);
+                Find<TextBox>(window, "VirtualKeyTextBox"),
+                Find<ComboBox>(window, "KeyTransitionSelector"),
+                Find<CheckBox>(window, "ExtendedKeyCheckBox"),
+                Find<Button>(window, "InsertKeyEventButton"),
+                Find<ComboBox>(window, "MouseButtonSelector"),
+                Find<ComboBox>(window, "MouseTransitionSelector"),
+                Find<Button>(window, "InsertMouseEventButton"));
+            VerifyNestedMacroBindingUi(
+                window,
+                viewModel,
+                eventTimeline,
+                nestedMacroToolbar,
+                nestedMacroTarget,
+                bindNestedMacro,
+                insertNestedMacro);
+            VerifySelectedEventReplacement(viewModel, window);
             VerifyEventSearchBindings(
                 viewModel,
                 window,
-                eventSearch,
-                findPreviousEvent,
-                findNextEvent,
-                eventSearchResult);
+                Find<TextBox>(window, "EventSearchTextBox"),
+                Find<Button>(window, "FindPreviousEventButton"),
+                Find<Button>(window, "FindNextEventButton"),
+                Find<TextBlock>(window, "EventSearchResultTextBlock"));
+            VerifyEventEditDialog(window);
             VerifyGeneratedAccessibility(viewModel, macroList, eventTimeline, diagnosticGroups, statusText);
             VerifyTimelineVirtualization(viewModel, eventTimeline);
-            VerifyTheme(application, expectedTheme);
+            VerifyTimelineScrollBar(eventTimeline);
+            VerifyTheme(application);
+            VerifyTablerIconResources(application);
 
             application.Shutdown(0);
         }
@@ -273,25 +337,6 @@ internal static class Program
         }
     }
 
-    private static void VerifyThemeOverrideIsolation()
-    {
-        var previousValue = Environment.GetEnvironmentVariable("XMACROBRIDGE_TEST_MODE");
-        try
-        {
-            Environment.SetEnvironmentVariable("XMACROBRIDGE_TEST_MODE", null);
-            var parseThemeMode = typeof(XMacroBridge.App.App).GetMethod(
-                "ParseThemeMode",
-                BindingFlags.NonPublic | BindingFlags.Static)
-                ?? throw new InvalidOperationException("Theme argument parser was not found.");
-            var result = parseThemeMode.Invoke(null, [new[] { "--theme-test", "dark" }]);
-            Assert(string.Equals(result?.ToString(), "System", StringComparison.Ordinal), "Theme test override escaped the test-mode boundary.");
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("XMACROBRIDGE_TEST_MODE", previousValue);
-        }
-    }
-
     private static void VerifyDpiAwareness(Window window)
     {
         var context = GetWindowDpiAwarenessContext(new System.Windows.Interop.WindowInteropHelper(window).Handle);
@@ -302,12 +347,234 @@ internal static class Program
             "Expected the WPF window to use PerMonitorV2 rather than PerMonitor v1.");
     }
 
-    private static void VerifyCompactLayout(ScrollViewer workspaceScroll)
+    private static void VerifyCompactLayout(
+        ScrollViewer workspaceScroll,
+        FrameworkElement macroContent,
+        params FrameworkElement[] rightEdgeElements)
     {
         Assert(workspaceScroll.ScrollableHeight > 0, "Compact 900x500 layout should provide vertical scrolling instead of clipping.");
         Assert(
             workspaceScroll.ScrollableWidth <= 1,
             $"Compact 900x500 layout should not require horizontal scrolling (ScrollableWidth={workspaceScroll.ScrollableWidth:F1}, ExtentWidth={workspaceScroll.ExtentWidth:F1}, ViewportWidth={workspaceScroll.ViewportWidth:F1}).");
+        var contentRight = macroContent.TranslatePoint(new Point(macroContent.ActualWidth, 0), workspaceScroll).X;
+        Assert(
+            contentRight <= workspaceScroll.ViewportWidth + 0.5,
+            $"Compact workspace content exceeds the visible viewport: {contentRight:F1} > {workspaceScroll.ViewportWidth:F1}.");
+        foreach (var element in rightEdgeElements)
+        {
+            if (!element.IsVisible || element.Visibility != Visibility.Visible)
+            {
+                continue;
+            }
+
+            var elementRight = element.TranslatePoint(new Point(element.ActualWidth, 0), workspaceScroll).X;
+            Assert(
+                elementRight <= workspaceScroll.ViewportWidth + 0.5,
+                $"Compact layout clips {element.Name} at the right edge: {elementRight:F1} > {workspaceScroll.ViewportWidth:F1}.");
+        }
+    }
+
+    private static void VerifyKeyboardCaptureNormalization()
+    {
+        Assert(
+            KeyboardKeyCapture.ResolveEffectiveKey(Key.ImeProcessed, Key.None, Key.A, Key.None) == Key.A,
+            "IME-processed keyboard input should resolve to its underlying A key instead of VK 229.");
+        Assert(
+            KeyboardKeyCapture.ResolveEffectiveKey(Key.DeadCharProcessed, Key.None, Key.None, Key.OemTilde) == Key.OemTilde,
+            "Dead-character keyboard input should resolve to its underlying punctuation key.");
+        Assert(InputEventDisplayFormatter.FormatVirtualKey(0xBA) == "; 键",
+            "OEM punctuation keys should have a readable display name.");
+        Assert(InputEventDisplayFormatter.FormatVirtualKey(0xE5) == "输入法处理键",
+            "VK_PROCESSKEY must not fall back to a numeric VK label.");
+    }
+
+    private static void VerifyTargetFormatBinding(WorkspaceViewModel viewModel, ComboBox targetFormat)
+    {
+        var xMouse = viewModel.ExportFormats.Single(item => item.FormatId == "xmbc.macro.text");
+        targetFormat.SelectedItem = xMouse;
+        targetFormat.UpdateLayout();
+        Assert(viewModel.TargetFormatId == "xmbc.macro.text",
+            "Selecting X-Mouse text did not update the backend target format.");
+        Assert(viewModel.SelectedExportFormat.Extension == ".txt",
+            "X-Mouse text selection did not produce a .txt export extension.");
+
+        var razer = viewModel.ExportFormats.Single(item => item.FormatId == "razer.macro.xml");
+        targetFormat.SelectedItem = razer;
+        targetFormat.UpdateLayout();
+        Assert(viewModel.TargetFormatId == "razer.macro.xml",
+            "Selecting Razer XML did not restore the backend target format.");
+    }
+
+    private static void VerifyLibraryNavigation(
+        Window window,
+        Button macroNavigation,
+        Button libraryNavigation,
+        Button settingsNavigation,
+        XMacroBridge.App.MacroLibraryView libraryContent,
+        ScrollViewer workspaceContent,
+        Border workspaceToolbar,
+        Border libraryToolbar,
+        Border settingsToolbar,
+        ScrollViewer settingsContent)
+    {
+        var libraryViewModel = libraryContent.DataContext as MacroLibraryViewModel
+            ?? throw new InvalidOperationException("Macro library view does not expose its view model.");
+        Assert(
+            libraryViewModel.RootPath.StartsWith(Path.GetTempPath(), StringComparison.OrdinalIgnoreCase),
+            "Smoke tests must isolate the macro library under the system temporary directory.");
+
+        libraryNavigation.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        window.UpdateLayout();
+        Assert(libraryContent.Visibility == Visibility.Visible, "Macro library navigation did not show the library page.");
+        Assert(workspaceContent.Visibility == Visibility.Collapsed, "Macro library navigation left the workspace visible.");
+        Assert(libraryToolbar.Visibility == Visibility.Visible && workspaceToolbar.Visibility == Visibility.Collapsed, "Macro library toolbar did not replace the conversion toolbar.");
+        Assert(Find<TextBox>(window, "LibrarySearchTextBox").IsEnabled, "Macro library search is unavailable.");
+        Assert(Find<Button>(window, "RefreshLibraryButton").IsEnabled, "Macro library refresh is unavailable.");
+        Assert(libraryViewModel.CanModifyLibrary == !libraryViewModel.IsBusy, "Macro library busy-state action gate is inconsistent.");
+        Assert(Find<ListBox>(libraryContent, "XMouseList").AllowDrop && Find<ListBox>(libraryContent, "RazerList").AllowDrop,
+            "Macro library lists do not accept drag reordering.");
+        Assert(libraryViewModel.CanReorderLibraryItems,
+            "Macro library custom ordering should be available in the default unsorted view.");
+        Assert(
+            Find<StackPanel>(libraryContent, "XMouseEmptyState").Visibility == (libraryViewModel.HasXMouseItems ? Visibility.Collapsed : Visibility.Visible),
+            "XMouse library empty state does not match the visible collection.");
+        Assert(
+            Find<StackPanel>(libraryContent, "RazerEmptyState").Visibility == (libraryViewModel.HasRazerItems ? Visibility.Collapsed : Visibility.Visible),
+            "Razer library empty state does not match the visible collection.");
+        Assert(
+            Find<Grid>(libraryContent, "XMouseActionPanel").Visibility == (libraryViewModel.HasSelectedXMouseItem ? Visibility.Visible : Visibility.Collapsed),
+            "XMouse library action panel does not follow selection state.");
+        Assert(Find<Border>(libraryContent, "LibraryStatusBar").IsVisible, "Macro library status bar is not visible.");
+
+        settingsNavigation.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        window.UpdateLayout();
+        Assert(settingsContent.Visibility == Visibility.Visible, "Settings navigation did not show settings.");
+        Assert(settingsToolbar.Visibility == Visibility.Visible && libraryToolbar.Visibility == Visibility.Collapsed, "Settings toolbar visibility is incorrect.");
+
+        macroNavigation.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        window.UpdateLayout();
+        Assert(workspaceContent.Visibility == Visibility.Visible && workspaceToolbar.Visibility == Visibility.Visible, "Workspace navigation did not restore the conversion page.");
+    }
+
+    private static void VerifyProgressiveWorkspaceStates(
+        Window window,
+        WorkspaceViewModel viewModel,
+        StackPanel eventSearchHost,
+        Border selectionToolbar,
+        Border insertionToolbar,
+        StackPanel noMacroEmptyState,
+        StackPanel emptyMacroState,
+        Border diagnosticPanel,
+        Border statusBar,
+        Button editButton,
+        Button deleteButton)
+    {
+        var originalMacro = viewModel.SelectedMacro
+            ?? throw new InvalidOperationException("Progressive workspace verification requires a selected macro.");
+        var originalEventIndex = viewModel.SelectedEvent?.EventIndex;
+
+        Assert(viewModel.HasSelectedMacro, "Selected-macro state should be true for the startup fixture.");
+        Assert(viewModel.HasTimelineEvents == (viewModel.Events.Count > 0), "Timeline-event state is inconsistent.");
+        Assert(viewModel.HasDiagnostics == (viewModel.Diagnostics.Count > 0), "Diagnostic presence state is inconsistent.");
+        Assert(viewModel.HasFilteredOutDiagnostics == (viewModel.HasDiagnostics && !viewModel.HasFilteredDiagnostics), "Filtered-diagnostic state is inconsistent.");
+
+        viewModel.SelectedMacro = null;
+        window.UpdateLayout();
+        Assert(!viewModel.HasSelectedMacro, "Clearing the macro did not update HasSelectedMacro.");
+        Assert(eventSearchHost.Visibility == Visibility.Collapsed, "Event search should be hidden without a macro.");
+        Assert(selectionToolbar.Visibility == Visibility.Collapsed && insertionToolbar.Visibility == Visibility.Collapsed, "Timeline tools should be hidden without a macro.");
+        Assert(diagnosticPanel.Visibility == Visibility.Collapsed, "Diagnostic report should collapse without a macro.");
+        Assert(noMacroEmptyState.Visibility == Visibility.Visible, "No-macro empty state is not visible.");
+        Assert(statusBar.Visibility == Visibility.Visible, "Workspace status bar should remain available without a macro.");
+
+        var emptyMacro = new MacroDocument(Guid.NewGuid(), "匿名化空宏", [], "smoke.synthetic");
+        viewModel.Macros.Add(emptyMacro);
+        viewModel.SelectedMacro = emptyMacro;
+        window.UpdateLayout();
+        Assert(!viewModel.HasTimelineEvents, "Empty macro should expose no timeline events.");
+        Assert(emptyMacroState.Visibility == Visibility.Visible, "Empty-macro guidance is not visible.");
+        Assert(noMacroEmptyState.Visibility == Visibility.Collapsed, "No-macro guidance should hide when an empty macro is selected.");
+        Assert(selectionToolbar.Visibility == Visibility.Visible && insertionToolbar.Visibility == Visibility.Visible, "Insertion tools should appear for an empty selected macro.");
+        Assert(diagnosticPanel.Visibility == Visibility.Visible, "Diagnostic panel should appear for a selected empty macro.");
+
+        viewModel.SelectedMacro = originalMacro;
+        viewModel.Macros.Remove(emptyMacro);
+        if (originalEventIndex is { } eventIndex)
+        {
+            viewModel.SelectedEvent = viewModel.Events.FirstOrDefault(item => item.EventIndex == eventIndex);
+        }
+
+        window.UpdateLayout();
+        if (viewModel.Events.Count > 0)
+        {
+            var row = viewModel.Events[0];
+            viewModel.SelectedEvent = row;
+            viewModel.SetSelectedEventIndices([row.EventIndex]);
+            window.UpdateLayout();
+            Assert(viewModel.HasSelectedEvents && viewModel.SelectedEventCountText == "已选 1 项", "Single-event selection state is incorrect.");
+            Assert(editButton.Visibility == Visibility.Visible && deleteButton.Visibility == Visibility.Visible, "Selection actions should appear after selecting an event.");
+
+            viewModel.SetSelectedEventIndices([]);
+            viewModel.SelectedEvent = null;
+            window.UpdateLayout();
+            Assert(!viewModel.HasSelectedEvents, "Clearing event selection did not update HasSelectedEvents.");
+            Assert(editButton.Visibility == Visibility.Collapsed && deleteButton.Visibility == Visibility.Collapsed, "Selection actions should hide without an event.");
+        }
+
+        viewModel.SelectedDiagnosticSeverity = viewModel.DiagnosticSeverityOptions[^1];
+        viewModel.SelectedDiagnosticScope = viewModel.DiagnosticScopes[^1];
+        viewModel.ResetDiagnosticFilters();
+        Assert(ReferenceEquals(viewModel.SelectedDiagnosticSeverity, viewModel.DiagnosticSeverityOptions[0]), "ResetDiagnosticFilters did not restore all severities.");
+        Assert(ReferenceEquals(viewModel.SelectedDiagnosticScope, viewModel.DiagnosticScopes[0]), "ResetDiagnosticFilters did not restore all diagnostic sources.");
+    }
+
+    private static void VerifyNestedMacroBindingUi(
+        Window window,
+        WorkspaceViewModel viewModel,
+        DataGrid eventTimeline,
+        Border toolbar,
+        ComboBox targetSelector,
+        Button bindButton,
+        Button insertButton)
+    {
+        var originalMacro = viewModel.SelectedMacro;
+        var parent = viewModel.Macros.Single(item => item.Name == "匿名化父宏");
+        var child = viewModel.Macros.Single(item => item.Name == "匿名化子宏");
+        viewModel.SelectedMacro = parent;
+        viewModel.SelectedEvent = viewModel.Events.Single(item => item.Event is MacroReferenceEvent);
+        window.UpdateLayout();
+
+        Assert(targetSelector.Items.Count == viewModel.Macros.Count - 1, "Nested target selector must list other imported macros.");
+        Assert(Grid.GetRow(toolbar) == 3 && Grid.GetRow(eventTimeline) == 4, "Nested macro controls should occupy a dedicated toolbar row above the timeline.");
+        Assert(double.IsNaN(targetSelector.Width), "Nested target selector should use responsive width rather than a fixed width.");
+        Assert(targetSelector.ActualWidth >= targetSelector.MinWidth - 0.5, "Nested target selector was compressed below its usable minimum width.");
+        Assert(targetSelector.ActualWidth <= targetSelector.MaxWidth + 0.5, "Nested target selector exceeded its compact maximum width.");
+        var insertRight = insertButton.TranslatePoint(new Point(insertButton.ActualWidth, 0), toolbar).X;
+        Assert(insertRight <= toolbar.ActualWidth + 0.5, "Nested macro actions are clipped at the toolbar right edge.");
+        Assert(ReferenceEquals(targetSelector.SelectedItem, child), "Selecting an existing nested event did not select its imported target.");
+        Assert(targetSelector.Text == child.Name, "Nested target selector did not bind the selected macro name locally.");
+        targetSelector.ApplyTemplate();
+        window.UpdateLayout();
+        Assert(
+            Descendants(targetSelector).OfType<TextBlock>().Any(item => item.Text == child.Name && item.IsVisible),
+            "Collapsed nested target selector did not visibly render the selected macro name.");
+        Assert(bindButton.IsEnabled, "Existing nested events should allow manual target binding.");
+        Assert(insertButton.IsEnabled, "Selected imported targets should allow nested event insertion.");
+        Assert(!string.IsNullOrWhiteSpace(AutomationProperties.GetName(targetSelector)), "Nested target selector has no accessible name.");
+        Assert(!string.IsNullOrWhiteSpace(AutomationProperties.GetName(bindButton)), "Nested bind button has no accessible name.");
+        Assert(!string.IsNullOrWhiteSpace(AutomationProperties.GetName(insertButton)), "Nested insert button has no accessible name.");
+
+        var beforeCount = viewModel.SelectedMacro.Events.Count;
+        insertButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Assert(
+            viewModel.SelectedMacro!.Events.Count == beforeCount + 1 &&
+            viewModel.SelectedEvent?.Event is MacroReferenceEvent inserted &&
+            inserted.TargetGuid == child.Id,
+            "Nested insert button did not add a reference to the selected imported macro.");
+        Assert(viewModel.Undo(), "Nested UI insertion should enter undo history.");
+        Assert(viewModel.SelectedMacro!.Events.Count == beforeCount, "Undo did not remove the nested UI insertion.");
+
+        viewModel.SelectedMacro = originalMacro;
     }
 
     private static void VerifyKeyboardContract(params Control[] controls)
@@ -330,6 +597,546 @@ internal static class Program
 
         VerifyFocusRing(controls.OfType<Button>().Single(item => item.Name == "ImportFolderButton"), "FocusRingBrush");
         VerifyFocusRing(controls.OfType<Button>().Single(item => item.Name == "ExportButton"), "PrimaryFocusRingBrush");
+    }
+
+    private static void VerifyVirtualKeyCapture(Window window, WorkspaceViewModel viewModel, TextBox textBox)
+    {
+        var source = PresentationSource.FromVisual(window)
+            ?? throw new InvalidOperationException("Main window has no presentation source for key capture testing.");
+        var letterArgs = new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, Key.E)
+        {
+            RoutedEvent = Keyboard.PreviewKeyDownEvent,
+        };
+        textBox.RaiseEvent(letterArgs);
+        Assert(letterArgs.Handled, "Captured keyboard input should not be typed into the VK field.");
+        Assert(viewModel.NewVirtualKeyText == "69", "Pressing E should capture VK 69.");
+        Assert(textBox.Text == "E", "The keyboard input field should show the readable key name instead of VK 69.");
+        Assert(!viewModel.NewKeyIsExtended, "Letter keys should not be marked extended.");
+
+        var extendedArgs = new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, Key.RightCtrl)
+        {
+            RoutedEvent = Keyboard.PreviewKeyDownEvent,
+        };
+        textBox.RaiseEvent(extendedArgs);
+        Assert(viewModel.NewVirtualKeyText == "163", "Pressing right Ctrl should capture VK 163.");
+        Assert(textBox.Text == "右 Ctrl", "The keyboard input field should show the captured right Ctrl key name.");
+        Assert(viewModel.NewKeyIsExtended, "Right Ctrl should automatically enable extended-key mode.");
+    }
+
+    private static void VerifyWindowChrome(
+        Window window,
+        Button minimizeWindow,
+        Button maximizeRestoreWindow,
+        Button closeWindow)
+    {
+        var chrome = WindowChrome.GetWindowChrome(window)
+            ?? throw new InvalidOperationException("Main window does not expose custom WindowChrome.");
+        Assert(window.WindowStyle == WindowStyle.None, "Razer-style title bar must replace the native Windows frame.");
+        Assert(chrome.CaptionHeight == 40, "Custom title bar caption height is incorrect.");
+        Assert(chrome.ResizeBorderThickness == new Thickness(6), "Custom title bar resize border is incorrect.");
+        Assert(!chrome.UseAeroCaptionButtons, "Custom title bar should use application-owned caption buttons.");
+        foreach (var button in new[] { minimizeWindow, maximizeRestoreWindow, closeWindow })
+        {
+            Assert(WindowChrome.GetIsHitTestVisibleInChrome(button), $"{button.Name} is not clickable inside WindowChrome.");
+            Assert(!button.IsTabStop && !button.Focusable, $"{button.Name} should not enter the workspace Tab order.");
+            Assert(!string.IsNullOrWhiteSpace(AutomationProperties.GetName(button)), $"{button.Name} has no accessibility name.");
+            Assert(button.ActualWidth == 46 && button.ActualHeight == 40, $"{button.Name} does not match the Razer-style caption size.");
+        }
+    }
+
+    private static void VerifyGreenHighlightForeground(System.Windows.Application application, params Button[] buttons)
+    {
+        var expected = GetColor(application, "RazerGreenTextBrush");
+        foreach (var button in buttons)
+        {
+            Assert(button.Foreground is SolidColorBrush brush && brush.Color == expected, $"{button.Name} should use dark text on green highlight buttons.");
+            button.ApplyTemplate();
+            button.UpdateLayout();
+            foreach (var presenter in Descendants(button).OfType<ContentPresenter>())
+            {
+                var inherited = TextElement.GetForeground(presenter);
+                Assert(
+                    inherited is SolidColorBrush inheritedBrush && inheritedBrush.Color == expected,
+                    $"{button.Name} content presenter did not inherit the dark green-highlight text color.");
+            }
+
+            foreach (var textBlock in Descendants(button).OfType<TextBlock>())
+            {
+                Assert(
+                    textBlock.Foreground is SolidColorBrush textBrush && textBrush.Color == expected,
+                    $"{button.Name} rendered text is not dark on a green highlight.");
+            }
+        }
+    }
+
+    private static void VerifyNormalTextForeground(System.Windows.Application application, Window window)
+    {
+        var expected = GetColor(application, "TextPrimaryBrush");
+        var normalText = Descendants(window)
+            .OfType<TextBlock>()
+            .FirstOrDefault(item => item.Text == "宏转换工作区" && Math.Abs(item.FontSize - 17) < 0.1)
+            ?? throw new InvalidOperationException("Normal workspace title text was not rendered.");
+        Assert(
+            normalText.Foreground is SolidColorBrush brush && brush.Color == expected,
+            "Normal text should keep the primary text brush; only green-highlighted controls should use dark text.");
+    }
+
+    private static void VerifyTitleBarNavigationStability(
+        Window window,
+        Button macroNavigation,
+        Button libraryNavigation,
+        Button settingsNavigation)
+    {
+        var buttons = new[] { macroNavigation, libraryNavigation, settingsNavigation };
+        window.UpdateLayout();
+        var baseline = Capture();
+        AssertBottomsAligned();
+
+        foreach (var navigationButton in buttons)
+        {
+            navigationButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            window.UpdateLayout();
+            var current = Capture();
+            Assert(buttons.Count(button => Equals(button.Tag, "Active")) == 1, "Title bar navigation should expose exactly one active tab.");
+            AssertBottomsAligned();
+
+            for (var index = 0; index < buttons.Length; index++)
+            {
+                AssertStable(current[index].X, baseline[index].X, buttons[index].Name, "X");
+                AssertStable(current[index].Width, baseline[index].Width, buttons[index].Name, "width");
+                AssertStable(current[index].Height, baseline[index].Height, buttons[index].Name, "height");
+            }
+        }
+
+        macroNavigation.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        window.UpdateLayout();
+
+        (double X, double Width, double Height, double Bottom)[] Capture() =>
+            buttons
+                .Select(button =>
+                {
+                    var origin = button.TranslatePoint(new Point(0, 0), window);
+                    var bottom = button.TranslatePoint(new Point(0, button.ActualHeight), window).Y;
+                    return (origin.X, button.ActualWidth, button.ActualHeight, bottom);
+                })
+                .ToArray();
+
+        void AssertStable(double actual, double expected, string name, string dimension) =>
+            Assert(
+                Math.Abs(actual - expected) <= 0.5,
+                $"{name} navigation {dimension} shifted during tab switching: {actual:F1} != {expected:F1}.");
+
+        void AssertBottomsAligned()
+        {
+            var bottoms = Capture().Select(item => item.Bottom).ToArray();
+            Assert(
+                bottoms.Max() - bottoms.Min() <= 0.5,
+                $"Title bar navigation tabs do not share a bottom edge ({string.Join(", ", bottoms.Select(value => value.ToString("F1")))})." );
+        }
+    }
+
+    private static void VerifyControlAlignment(
+        Window window,
+        FrameworkElement currentMacro,
+        ComboBox targetFormat,
+        Button exportButton,
+        TextBox newDelay,
+        Button insertDelay,
+        TextBox virtualKey,
+        ComboBox keyTransition,
+        Button insertKey,
+        ComboBox severityFilter,
+        ComboBox scopeFilter)
+    {
+        AssertBottomAligned(window, "header actions", currentMacro, targetFormat, exportButton);
+        AssertBottomAligned(window, "delay toolbar", newDelay, insertDelay);
+        AssertBottomAligned(window, "keyboard toolbar", virtualKey, keyTransition, insertKey);
+        AssertBottomAligned(window, "diagnostic filters", severityFilter, scopeFilter);
+        foreach (var control in new FrameworkElement[]
+                 {
+                     currentMacro,
+                     targetFormat,
+                     exportButton,
+                     newDelay,
+                     insertDelay,
+                     virtualKey,
+                     keyTransition,
+                     insertKey,
+                     severityFilter,
+                     scopeFilter,
+                 })
+        {
+            Assert(Math.Abs(control.ActualHeight - 32) <= 0.5, $"{control.Name} is not aligned to the 32-DIP control height.");
+        }
+    }
+
+    private static void AssertBottomAligned(Window window, string groupName, params FrameworkElement[] elements)
+    {
+        var bottoms = elements
+            .Select(element => element.TranslatePoint(new Point(0, element.ActualHeight), window).Y)
+            .ToArray();
+        Assert(
+            bottoms.Max() - bottoms.Min() <= 1,
+            $"{groupName} controls do not share a bottom baseline ({string.Join(", ", bottoms.Select(value => value.ToString("F1")))})." );
+    }
+
+    private static void VerifyHeaderFieldAlignment(
+        System.Windows.Application application,
+        Window window,
+        WorkspaceViewModel viewModel,
+        TextBlock currentMacroLabel,
+        Border currentMacroHost,
+        TextBlock currentMacroValue,
+        TextBlock targetFormatLabel,
+        ComboBox targetFormat,
+        ComboBox ordinaryComboBox)
+    {
+        Assert(currentMacroLabel.HorizontalAlignment == HorizontalAlignment.Center, "Current macro label is not centered in its field column.");
+        Assert(targetFormatLabel.HorizontalAlignment == HorizontalAlignment.Center, "Target format label is not centered in its field column.");
+        Assert(currentMacroValue.HorizontalAlignment == HorizontalAlignment.Center && currentMacroValue.TextAlignment == TextAlignment.Center,
+            "Current macro value is not centered in its read-only field.");
+        Assert(targetFormat.HorizontalContentAlignment == HorizontalAlignment.Center,
+            "Target format selected value is not centered.");
+        Assert(ordinaryComboBox.HorizontalContentAlignment == HorizontalAlignment.Left,
+            "Ordinary combo boxes should retain their default left alignment.");
+
+        var controlColor = GetColor(application, "ControlBrush");
+        var borderColor = GetColor(application, "BorderBrush");
+        Assert(currentMacroHost.Background is SolidColorBrush background && background.Color == controlColor,
+            "Current macro field does not use the standard control surface.");
+        Assert(currentMacroHost.BorderBrush is SolidColorBrush border && border.Color == borderColor && currentMacroHost.BorderThickness.Left == 1,
+            "Current macro field does not use the standard weak border.");
+        Assert(currentMacroHost.CornerRadius == new CornerRadius(3), "Current macro field corner radius is inconsistent with other controls.");
+        Assert(currentMacroValue.TextTrimming == TextTrimming.CharacterEllipsis,
+            "Current macro field must trim long names with an ellipsis.");
+        Assert(Equals(currentMacroValue.ToolTip, viewModel.SelectedMacro?.Name),
+            "Current macro field must retain the full selected name in its tooltip.");
+
+        targetFormat.ApplyTemplate();
+        ordinaryComboBox.ApplyTemplate();
+        window.UpdateLayout();
+        var targetValueText = Descendants(targetFormat).OfType<TextBlock>()
+            .FirstOrDefault(item => item.Text == targetFormat.Text)
+            ?? throw new InvalidOperationException("Target format selected-value text was not rendered.");
+        var ordinaryValueText = Descendants(ordinaryComboBox).OfType<TextBlock>()
+            .FirstOrDefault(item => item.Text == ordinaryComboBox.Text)
+            ?? throw new InvalidOperationException("Ordinary combo-box selected-value text was not rendered.");
+        Assert(targetValueText.HorizontalAlignment == HorizontalAlignment.Center,
+            "Target format template did not apply centered content alignment.");
+        Assert(ordinaryValueText.HorizontalAlignment == HorizontalAlignment.Left,
+            "Combo-box template changed ordinary selected values away from left alignment.");
+    }
+
+    private static void VerifyParameterInputAlignment(params TextBox[] inputs)
+    {
+        foreach (var input in inputs)
+        {
+            Assert(input.HorizontalContentAlignment == HorizontalAlignment.Center, $"{input.Name} parameter content is not horizontally centered.");
+            Assert(input.VerticalContentAlignment == VerticalAlignment.Center, $"{input.Name} parameter content is not vertically centered.");
+            Assert(input.TextAlignment == TextAlignment.Center, $"{input.Name} parameter text is not centered.");
+        }
+    }
+
+    private static void VerifyMacroTextDialog(Window owner)
+    {
+        var dialog = new XMacroBridge.App.MacroTextInputDialog
+        {
+            Owner = owner,
+            ShowInTaskbar = false,
+            Left = -20_000,
+            Top = -20_000,
+        };
+        try
+        {
+            dialog.Show();
+            var textBox = Find<TextBox>(dialog, "MacroTextBox");
+            var importButton = Find<Button>(dialog, "ImportButton");
+            Assert(!importButton.IsEnabled, "Blank macro text should not be submittable.");
+            textBox.Text = "e{WAITMS:10}{LMB}";
+            Assert(importButton.IsEnabled, "Non-empty macro text should enable import.");
+            Assert(textBox.TextWrapping == TextWrapping.Wrap, "Long macro text should wrap inside the input box.");
+            Assert(
+                ScrollViewer.GetHorizontalScrollBarVisibility(textBox) == ScrollBarVisibility.Disabled,
+                "Macro text input should not require horizontal scrolling.");
+            var dialogText = Descendants(dialog).OfType<TextBlock>().Select(item => item.Text).ToArray();
+            Assert(!dialogText.Any(text => text.StartsWith("示例：", StringComparison.Ordinal)), "Macro text dialog should not show the removed example text.");
+            Assert(!dialogText.Contains("文本仅在本机内存中解析，不会上传。", StringComparer.Ordinal), "Macro text dialog should not show the removed local-processing note.");
+            VerifyAccessibilityNames(textBox, importButton);
+            Assert(textBox.TabIndex == 0 && importButton.TabIndex == 2, "Macro text dialog keyboard order is incorrect.");
+        }
+        finally
+        {
+            dialog.Close();
+        }
+
+        var editDialog = new XMacroBridge.App.MacroTextInputDialog("e{WAITMS:10}{LMB}", isEdit: true)
+        {
+            Owner = owner,
+            ShowInTaskbar = false,
+            Left = -20_000,
+            Top = -20_000,
+        };
+        try
+        {
+            editDialog.Show();
+            var textBox = Find<TextBox>(editDialog, "MacroTextBox");
+            var applyButton = Find<Button>(editDialog, "ImportButton");
+            Assert(textBox.Text == "e{WAITMS:10}{LMB}", "Macro text edit dialog did not preload the current text.");
+            Assert(string.Equals(applyButton.Content?.ToString(), "应用修改", StringComparison.Ordinal), "Macro text edit dialog action label is incorrect.");
+        }
+        finally
+        {
+            editDialog.Close();
+        }
+    }
+
+    private static void VerifyMacroLibraryEntryDialog(Window owner)
+    {
+        var dialog = new XMacroBridge.App.MacroLibraryEntryDialog(
+            "新建 XMouse 宏",
+            "测试宏",
+            ["测试分组"],
+            "测试分组",
+            showText: true,
+            initialText: "e{WAITMS:10}{LMB}")
+        {
+            Owner = owner,
+            ShowInTaskbar = false,
+            Left = -20_000,
+            Top = -20_000,
+        };
+        try
+        {
+            dialog.Show();
+            dialog.UpdateLayout();
+            var textBox = Find<TextBox>(dialog, "MacroTextBox");
+            Assert(textBox.ActualHeight >= 280, $"Macro library text editor is still too short ({textBox.ActualHeight:F1}).");
+            Assert(textBox.TextWrapping == TextWrapping.Wrap, "Macro library text editor should wrap long macros.");
+            Assert(
+                ScrollViewer.GetHorizontalScrollBarVisibility(textBox) == ScrollBarVisibility.Disabled,
+                "Macro library text editor should not require horizontal scrolling.");
+            Assert(dialog.FindResource("StarFilledIconGeometry") is Geometry, "Tabler filled-star geometry is unavailable.");
+        }
+        finally
+        {
+            dialog.Close();
+        }
+    }
+
+    private static void VerifyContextMenuChrome(
+        ContextMenu contextMenu,
+        FrameworkElement placementTarget)
+    {
+        contextMenu.PlacementTarget ??= placementTarget;
+        contextMenu.IsOpen = true;
+        try
+        {
+            contextMenu.ApplyTemplate();
+            contextMenu.UpdateLayout();
+            contextMenu.Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+
+            var descendants = Enumerable
+                .Repeat<DependencyObject>(contextMenu, 1)
+                .Concat(Descendants(contextMenu))
+                .ToArray();
+            Assert(
+                !descendants.OfType<ScrollViewer>().Any(),
+                "Context menus should not render the default WPF scroll-viewer chrome.");
+
+            var lightSurfaces = descendants
+                .SelectMany(GetSurfaceColors)
+                .Where(item => item.Color.A > 32 && RelativeLuminance(item.Color) > 0.82)
+                .Select(item => $"{item.Element} {item.Color}")
+                .ToArray();
+            Assert(
+                lightSurfaces.Length == 0,
+                $"Context menu leaked light system chrome: {string.Join(", ", lightSurfaces)}.");
+        }
+        finally
+        {
+            contextMenu.IsOpen = false;
+        }
+    }
+
+    private static IEnumerable<(string Element, Color Color)> GetSurfaceColors(DependencyObject element)
+    {
+        Brush? brush = element switch
+        {
+            ContextMenu menu => menu.Background,
+            MenuItem menuItem => menuItem.Background,
+            Border border => border.Background,
+            Panel panel => panel.Background,
+            System.Windows.Shapes.Shape shape => shape.Fill,
+            _ => null,
+        };
+        if (brush is SolidColorBrush solid)
+        {
+            yield return (element.GetType().Name, solid.Color);
+        }
+    }
+
+    private static void VerifyMacroRenameUi(Window owner, ListBox macroList)
+    {
+        Assert(macroList.ContextMenu is { Items.Count: 3 }, "Macro list should expose rename, text-edit and delete actions.");
+        var renameMenuItem = macroList.ContextMenu.Items[0] as MenuItem
+            ?? throw new InvalidOperationException("Macro context action is not a menu item.");
+        Assert(string.Equals(renameMenuItem.Header?.ToString(), "重命名…", StringComparison.Ordinal), "Macro rename menu text is incorrect.");
+        Assert(!string.IsNullOrWhiteSpace(AutomationProperties.GetName(renameMenuItem)), "Macro rename menu has no accessibility name.");
+        var editTextMenuItem = macroList.ContextMenu.Items[1] as MenuItem
+            ?? throw new InvalidOperationException("Macro text-edit context action is not a menu item.");
+        Assert(string.Equals(editTextMenuItem.Header?.ToString(), "修改宏文本…", StringComparison.Ordinal), "Macro text-edit menu text is incorrect.");
+        Assert(!string.IsNullOrWhiteSpace(AutomationProperties.GetName(editTextMenuItem)), "Macro text-edit menu has no accessibility name.");
+        var deleteMenuItem = macroList.ContextMenu.Items[2] as MenuItem
+            ?? throw new InvalidOperationException("Macro delete context action is not a menu item.");
+        Assert(string.Equals(deleteMenuItem.Header?.ToString(), "删除", StringComparison.Ordinal), "Macro delete menu text is incorrect.");
+        Assert(!string.IsNullOrWhiteSpace(AutomationProperties.GetName(deleteMenuItem)), "Macro delete menu has no accessibility name.");
+        Assert(!macroList.ContextMenu.HasDropShadow, "Macro context menu should not expose the system popup shadow gutter.");
+        Assert(
+            ScrollViewer.GetVerticalScrollBarVisibility(macroList.ContextMenu) == ScrollBarVisibility.Disabled &&
+            ScrollViewer.GetHorizontalScrollBarVisibility(macroList.ContextMenu) == ScrollBarVisibility.Disabled,
+            "Macro context menu should not expose scroll gutters for its two fixed actions.");
+        VerifyContextMenuChrome(macroList.ContextMenu, macroList);
+
+        var dynamicMenu = new ContextMenu();
+        dynamicMenu.Items.Add(new MenuItem { Header = "重命名" });
+        dynamicMenu.Items.Add(new MenuItem { Header = "移动到：未分组" });
+        try
+        {
+            VerifyContextMenuChrome(dynamicMenu, macroList);
+        }
+        finally
+        {
+            dynamicMenu.IsOpen = false;
+        }
+
+        var dialog = new XMacroBridge.App.MacroRenameDialog("旧名称")
+        {
+            Owner = owner,
+            ShowInTaskbar = false,
+            Left = -20_000,
+            Top = -20_000,
+        };
+        try
+        {
+            dialog.Show();
+            var nameTextBox = Find<TextBox>(dialog, "MacroNameTextBox");
+            var renameButton = Find<Button>(dialog, "RenameButton");
+            Assert(nameTextBox.Text == "旧名称" && renameButton.IsEnabled, "Rename dialog did not populate the current macro name.");
+            nameTextBox.Text = "   ";
+            Assert(!renameButton.IsEnabled, "Rename dialog should reject a blank name.");
+            nameTextBox.Text = "新名称";
+            Assert(renameButton.IsEnabled, "Rename dialog should accept a non-empty name.");
+            VerifyAccessibilityNames(nameTextBox, renameButton);
+        }
+        finally
+        {
+            dialog.Close();
+        }
+    }
+
+    private static void VerifyTimelineMultiSelectionUi(
+        XMacroBridge.App.MainWindow window,
+        WorkspaceViewModel viewModel,
+        DataGrid eventTimeline)
+    {
+        eventTimeline.SelectedItems.Clear();
+        var addRowToSelection = typeof(XMacroBridge.App.MainWindow).GetMethod(
+            "AddTimelineRowToSelection",
+            BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Timeline additive click selection handler is absent.");
+        var firstRow = eventTimeline.ItemContainerGenerator.ContainerFromIndex(0) as DataGridRow
+            ?? throw new InvalidOperationException("First timeline row was not realized for multi-selection UI checks.");
+        var secondRow = eventTimeline.ItemContainerGenerator.ContainerFromIndex(1) as DataGridRow
+            ?? throw new InvalidOperationException("Second timeline row was not realized for multi-selection UI checks.");
+        _ = addRowToSelection.Invoke(window, [firstRow]);
+        _ = addRowToSelection.Invoke(window, [secondRow]);
+        eventTimeline.UpdateLayout();
+        Assert(eventTimeline.SelectedItems.Count == 2, "Repeated plain row clicks must accumulate timeline selection.");
+        Assert(viewModel.SelectedEventCount == 2, "Additive row selection did not synchronize with the workspace.");
+        Assert(viewModel.CanCopyEvent && viewModel.CanDeleteEvent, "Multi-selection did not enable copy and delete actions.");
+
+        var checkBox = Descendants(firstRow).OfType<CheckBox>().FirstOrDefault()
+            ?? throw new InvalidOperationException("Timeline row does not expose a selection checkbox.");
+        Assert(AutomationProperties.GetName(checkBox) == "选择时间线事件", "Timeline selection checkbox has an incorrect accessibility name.");
+        Assert(Descendants(firstRow).OfType<Button>().Count() >= 2, "Timeline row does not expose inline copy and delete actions.");
+        var actions = Descendants(firstRow)
+            .OfType<StackPanel>()
+            .SingleOrDefault(panel => Equals(panel.Tag, "TimelineActions"))
+            ?? throw new InvalidOperationException("Timeline row action panel is absent.");
+        actions.Visibility = Visibility.Visible;
+        eventTimeline.UpdateLayout();
+        var actionRight = actions.TranslatePoint(new Point(actions.ActualWidth, 0), eventTimeline).X;
+        Assert(
+            actionRight <= eventTimeline.ActualWidth - 8,
+            $"Timeline actions overflow the right safe area: {actionRight:F1} > {eventTimeline.ActualWidth - 8:F1}.");
+        var dragHandle = Descendants(firstRow)
+            .OfType<Border>()
+            .SingleOrDefault(border => Equals(border.Tag, "TimelineDragHandle"));
+        Assert(dragHandle?.Cursor == Cursors.SizeAll, "Timeline drag handle is absent or not draggable.");
+
+        var updateDropIndicator = typeof(XMacroBridge.App.MainWindow).GetMethod(
+            "UpdateTimelineDropIndicator",
+            BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Timeline drop indicator handler is absent.");
+        var showDragFeedback = typeof(XMacroBridge.App.MainWindow).GetMethod(
+            "ShowTimelineDragFeedback",
+            BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Timeline floating drag feedback handler is absent.");
+        var clearDragFeedback = typeof(XMacroBridge.App.MainWindow).GetMethod(
+            "ClearTimelineDragFeedback",
+            BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Timeline drag feedback cleanup handler is absent.");
+        var feedbackPopup = Find<Popup>(window, "TimelineDragFeedbackPopup");
+        var feedbackText = Find<TextBlock>(window, "TimelineDragFeedbackTextBlock");
+
+        _ = updateDropIndicator.Invoke(window, [firstRow, false]);
+        eventTimeline.UpdateLayout();
+        Assert(Equals(firstRow.Tag, "TimelineInsertBefore"), "Drag target did not expose a before-insertion marker.");
+        Assert(firstRow.BorderThickness.Top >= 2, "Before-insertion marker did not render a visible top line.");
+
+        _ = updateDropIndicator.Invoke(window, [firstRow, true]);
+        eventTimeline.UpdateLayout();
+        Assert(Equals(firstRow.Tag, "TimelineInsertAfter"), "Drag target did not expose an after-insertion marker.");
+        Assert(firstRow.BorderThickness.Bottom >= 2, "After-insertion marker did not render a visible bottom line.");
+
+        _ = showDragFeedback.Invoke(window, [2, new Point(80, 60)]);
+        Assert(feedbackPopup.IsOpen, "Timeline floating drag feedback did not open.");
+        Assert(feedbackText.Text == "移动 2 个操作", "Timeline floating drag feedback count is incorrect.");
+        Assert(feedbackPopup.HorizontalOffset == 98 && feedbackPopup.VerticalOffset == 78, "Timeline floating drag feedback does not follow the pointer offset.");
+
+        _ = clearDragFeedback.Invoke(window, null);
+        Assert(!feedbackPopup.IsOpen && firstRow.Tag is null, "Timeline drag feedback was not fully cleared.");
+
+        eventTimeline.SelectedItems.Clear();
+        viewModel.SetSelectedEventIndices([]);
+    }
+
+    private static void VerifyTimelineResponsiveResize(
+        Window window,
+        WorkspaceViewModel viewModel,
+        DataGrid eventTimeline)
+    {
+        window.Width = 1265;
+        window.UpdateLayout();
+        window.Width = 900;
+        window.UpdateLayout();
+        eventTimeline.ScrollIntoView(viewModel.Events[0]);
+        eventTimeline.UpdateLayout();
+
+        var expectedMaximum = eventTimeline.ActualWidth - SystemParameters.VerticalScrollBarWidth;
+        Assert(eventTimeline.Columns[0].ActualWidth <= expectedMaximum, "Timeline column retained its maximized-window width after shrinking.");
+        Assert(eventTimeline.Columns[0].ActualWidth >= 400, "Timeline column collapsed after shrinking the window.");
+
+        var firstRow = eventTimeline.ItemContainerGenerator.ContainerFromIndex(0) as DataGridRow
+            ?? throw new InvalidOperationException("First timeline row was not realized after responsive resize.");
+        var eventLabel = Descendants(firstRow)
+            .OfType<TextBlock>()
+            .FirstOrDefault(text => string.Equals(text.Text, viewModel.Events[0].EditorLabel, StringComparison.Ordinal));
+        Assert(eventLabel is { IsVisible: true, ActualWidth: > 0 }, "Timeline event content disappeared after shrinking the window.");
+
+        var scrollViewer = Descendants(eventTimeline).OfType<ScrollViewer>().FirstOrDefault()
+            ?? throw new InvalidOperationException("Timeline scroll viewer was not realized after responsive resize.");
+        Assert(scrollViewer.HorizontalOffset == 0, "Timeline retained a hidden horizontal offset after shrinking.");
     }
 
     private static void VerifyEditingBindings(
@@ -413,7 +1220,14 @@ internal static class Program
         Button insertMouseEvent)
     {
         var originalEventCount = viewModel.SelectedMacro!.Events.Count;
-        virtualKey.Text = "66";
+        var source = PresentationSource.FromVisual(window)
+            ?? throw new InvalidOperationException("Main window has no presentation source for keyboard insertion testing.");
+        virtualKey.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, Key.B)
+        {
+            RoutedEvent = Keyboard.PreviewKeyDownEvent,
+        });
+        Assert(virtualKey.Text == "B" && viewModel.NewVirtualKeyText == "66",
+            "Keyboard insertion input did not capture B as VK 66.");
         extendedKey.IsChecked = true;
         keyTransition.SelectedItem = viewModel.InputTransitionOptions.Single(item => item.Transition == InputTransition.Down);
         insertKeyEvent.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -453,6 +1267,94 @@ internal static class Program
         Assert(viewModel.SelectedMacro.Events.Count == originalEventCount + 4, "Parameterized insertion did not add four events.");
     }
 
+    private static void VerifySelectedEventReplacement(WorkspaceViewModel viewModel, Window window)
+    {
+        viewModel.SelectedEvent = viewModel.Events.First(item => item.Event is KeyMacroEvent);
+        var originalKey = (KeyMacroEvent)viewModel.SelectedEvent.Event;
+        Assert(viewModel.CanEditSelectedEvent, "Selected keyboard event should be editable.");
+        Assert(
+            viewModel.UpdateSelectedEvent(originalKey with { VirtualKey = originalKey.VirtualKey == 67 ? 68 : 67 }),
+            "Keyboard replacement edit failed.");
+        window.UpdateLayout();
+        Assert(viewModel.SelectedEvent?.Event is KeyMacroEvent { VirtualKey: 67 } or KeyMacroEvent { VirtualKey: 68 }, "Keyboard replacement was not selected.");
+        Assert(viewModel.Undo(), "Keyboard replacement edit was not undoable.");
+
+        viewModel.SelectedEvent = viewModel.Events.First(item => item.Event is MouseMacroEvent);
+        var originalMouse = (MouseMacroEvent)viewModel.SelectedEvent.Event;
+        var replacementButton = originalMouse.Button == MacroMouseButton.Right ? MacroMouseButton.Left : MacroMouseButton.Right;
+        Assert(
+            viewModel.UpdateSelectedEvent(originalMouse with { Button = replacementButton }),
+            "Mouse replacement edit failed.");
+        window.UpdateLayout();
+        Assert(viewModel.SelectedEvent?.Event is MouseMacroEvent { Button: var button } && button == replacementButton, "Mouse replacement was not selected.");
+        Assert(viewModel.Undo(), "Mouse replacement edit was not undoable.");
+    }
+
+    private static void VerifyEventEditDialog(Window owner)
+    {
+        var delayDialog = new XMacroBridge.App.EventEditDialog(new DelayMacroEvent(3, 250))
+        {
+            Owner = owner,
+            ShowInTaskbar = false,
+            Left = -20_000,
+            Top = -20_000,
+        };
+        try
+        {
+            delayDialog.Show();
+            var delay = Find<TextBox>(delayDialog, "DelayTextBox");
+            Assert(delay.Text == "250", "Event editor did not preload the delay value.");
+            VerifyParameterInputAlignment(delay);
+            Assert(delayDialog.Background is SolidColorBrush, "Event editor did not inherit the dark window background.");
+            Assert(delayDialog.Icon is not null, "Event editor did not inherit the application icon.");
+            delay.Text = "-1";
+            Find<Button>(delayDialog, "SaveButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var validationPanel = Find<Grid>(delayDialog, "ValidationPanel");
+            Assert(validationPanel.Visibility == Visibility.Visible, "Invalid event input did not show inline validation.");
+            Assert(AutomationProperties.GetLiveSetting(validationPanel) == AutomationLiveSetting.Assertive, "Event validation is not exposed as an assertive live region.");
+        }
+        finally
+        {
+            delayDialog.Close();
+        }
+
+        var keyDialog = new XMacroBridge.App.EventEditDialog(new KeyMacroEvent(4, 69, InputTransition.Down))
+        {
+            Owner = owner,
+            ShowInTaskbar = false,
+            Left = -20_000,
+            Top = -20_000,
+        };
+        try
+        {
+            keyDialog.Show();
+            keyDialog.UpdateLayout();
+            var keyTextBox = Find<TextBox>(keyDialog, "VirtualKeyTextBox");
+            var extendedKey = Find<CheckBox>(keyDialog, "ExtendedKeyCheckBox");
+            Assert(keyTextBox.Text == "E", "Keyboard event editor should preload a readable key name.");
+            Assert(keyTextBox.IsReadOnly, "Keyboard event editor should capture keys instead of accepting VK text.");
+            Assert(extendedKey.IsVisible && extendedKey.ActualHeight > 0, "Keyboard event editor content is clipped before the extended-key option.");
+            Assert(keyDialog.SizeToContent == SizeToContent.Height, "Keyboard event editor should size itself to its full content.");
+
+            var source = PresentationSource.FromVisual(keyDialog)
+                ?? throw new InvalidOperationException("Event editor has no presentation source for key capture testing.");
+            var altArgs = new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, Key.LeftAlt)
+            {
+                RoutedEvent = Keyboard.PreviewKeyDownEvent,
+            };
+            keyTextBox.RaiseEvent(altArgs);
+            Assert(altArgs.Handled, "Keyboard event editor should consume captured Alt input.");
+            Assert(keyTextBox.Text == "左 Alt", "Keyboard event editor should display Alt instead of its numeric VK code.");
+            Assert(extendedKey.IsChecked != true, "Left Alt should not be marked as an extended key.");
+            Assert(keyDialog.CapturedVirtualKey == 164,
+                "Keyboard event editor did not retain Alt as backend VK 164.");
+        }
+        finally
+        {
+            keyDialog.Close();
+        }
+    }
+
     private static void VerifyEventSearchBindings(
         WorkspaceViewModel viewModel,
         Window window,
@@ -466,20 +1368,38 @@ internal static class Program
         Assert(eventSearch.Text == "键盘", "Event search text binding did not refresh.");
         Assert(findPreviousEvent.IsEnabled && findNextEvent.IsEnabled, "Matching event search did not enable navigation.");
         Assert(eventSearchResult.Text.StartsWith("0 / ", StringComparison.Ordinal), "Event search count is incorrect before navigation.");
+        var workspaceScroll = Find<ScrollViewer>((FrameworkElement)window, "WorkspaceScrollViewer");
+        var searchResultRight = eventSearchResult.TranslatePoint(new Point(eventSearchResult.ActualWidth, 0), workspaceScroll).X;
+        Assert(searchResultRight <= workspaceScroll.ViewportWidth + 0.5, "Visible event-search status is clipped in the compact workspace.");
 
         findNextEvent.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         window.UpdateLayout();
-        Assert(viewModel.SelectedEvent?.Type == "键盘", "Next-result button did not select a matching event.");
+        Assert(viewModel.SelectedEvent?.Type.StartsWith("键盘", StringComparison.Ordinal) == true, "Next-result button did not select a matching event.");
         Assert(eventSearchResult.Text.StartsWith("1 / ", StringComparison.Ordinal), "Event search position did not update after navigation.");
 
         findPreviousEvent.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         window.UpdateLayout();
-        Assert(viewModel.SelectedEvent?.Type == "键盘", "Previous-result button did not preserve a matching selection.");
+        Assert(viewModel.SelectedEvent?.Type.StartsWith("键盘", StringComparison.Ordinal) == true, "Previous-result button did not preserve a matching selection.");
         Assert(
             AutomationProperties.GetName(eventSearchResult) == "时间线搜索结果计数",
             "Event search result UIA name must remain static and exclude the search query.");
 
-        viewModel.EventSearchText = string.Empty;
+        var source = PresentationSource.FromVisual(window)
+            ?? throw new InvalidOperationException("Workspace has no presentation source for search-key testing.");
+        var enterArgs = new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, Key.Enter)
+        {
+            RoutedEvent = Keyboard.PreviewKeyDownEvent,
+        };
+        eventSearch.RaiseEvent(enterArgs);
+        Assert(enterArgs.Handled, "Enter should navigate to the next event-search result.");
+
+        var escapeArgs = new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, Key.Escape)
+        {
+            RoutedEvent = Keyboard.PreviewKeyDownEvent,
+        };
+        eventSearch.RaiseEvent(escapeArgs);
+        Assert(escapeArgs.Handled && string.IsNullOrEmpty(viewModel.EventSearchText), "Escape should clear the event search.");
+
         window.UpdateLayout();
         Assert(eventSearchResult.Text == "未搜索", "Clearing event search did not restore the idle summary.");
     }
@@ -580,6 +1500,35 @@ internal static class Program
             $"Timeline virtualization is ineffective: {realizedRows} of {events.Length} rows were realized.");
     }
 
+    private static void VerifyTimelineScrollBar(DataGrid eventTimeline)
+    {
+        eventTimeline.UpdateLayout();
+        var scrollViewer = Descendants(eventTimeline).OfType<ScrollViewer>().FirstOrDefault()
+            ?? throw new InvalidOperationException("Timeline scroll viewer was not realized.");
+        var scrollBar = Descendants(scrollViewer)
+            .OfType<ScrollBar>()
+            .FirstOrDefault(item => item.Orientation == Orientation.Vertical && item.IsVisible)
+            ?? throw new InvalidOperationException("Timeline vertical scroll bar was not realized.");
+        var track = Descendants(scrollBar).OfType<Track>().FirstOrDefault()
+            ?? throw new InvalidOperationException("Timeline vertical scroll track was not realized.");
+        var thumb = Descendants(scrollBar).OfType<Thumb>().FirstOrDefault()
+            ?? throw new InvalidOperationException("Timeline vertical scroll thumb was not realized.");
+
+        Assert(scrollBar.ActualWidth >= 12, "Timeline vertical scroll bar is too narrow to see or operate reliably.");
+        Assert(scrollBar.ActualHeight > eventTimeline.ActualHeight / 2, "Timeline vertical scroll bar does not span the list height.");
+        Assert(double.IsNaN(track.ViewportSize), "Timeline scroll track must use a fixed-size thumb in compact layouts.");
+        Assert(thumb.Height == 48 && thumb.ActualHeight >= 47, "Timeline vertical scroll thumb is not fully visible at its fixed size.");
+
+        var target = Math.Max(1, scrollBar.Maximum / 2);
+        track.Value = target;
+        eventTimeline.UpdateLayout();
+        Assert(Math.Abs(scrollBar.Value - target) < 0.5, "Timeline scroll track is not bound to the scroll bar value.");
+        scrollViewer.ScrollToVerticalOffset(target);
+        eventTimeline.UpdateLayout();
+        Assert(scrollViewer.VerticalOffset > 0, "Timeline scroll viewer did not move to a non-zero offset.");
+        scrollViewer.ScrollToTop();
+    }
+
     private static void AssertSafeAutomationName(DependencyObject element, string description)
     {
         var name = AutomationProperties.GetName(element);
@@ -609,7 +1558,7 @@ internal static class Program
         }
     }
 
-    private static void VerifyTheme(System.Windows.Application application, string expectedTheme)
+    private static void VerifyTheme(System.Windows.Application application)
     {
         var page = GetColor(application, "PageBrush");
         var card = GetColor(application, "CardBrush");
@@ -632,15 +1581,16 @@ internal static class Program
         var success = GetColor(application, "SuccessBrush");
         var successSurface = GetColor(application, "SuccessSurfaceBrush");
         var successSurfaceText = GetColor(application, "SuccessSurfaceTextBrush");
+        var navigation = GetColor(application, "NavigationBrush");
+        var editor = GetColor(application, "PanelBrush");
+        var control = GetColor(application, "ControlBrush");
+        var brandGreen = GetColor(application, "RazerGreenBrush");
 
-        var expectedPage = expectedTheme switch
-        {
-            "light" => Parse("#FFF5F5F7"),
-            "dark" => Parse("#FF1C1C1E"),
-            "high-contrast" => SystemColors.WindowColor,
-            _ => throw new InvalidOperationException($"Unknown smoke-test theme {expectedTheme}."),
-        };
-        Assert(page == expectedPage, $"{expectedTheme} theme did not apply the expected page color.");
+        Assert(page == Parse("#FF202020"), "Fixed Razer page color is incorrect.");
+        Assert(navigation == Parse("#FF090909"), "Branded navigation color is incorrect.");
+        Assert(editor == Parse("#FF101010"), "Branded editor color is incorrect.");
+        Assert(control == Parse("#FF242424"), "Branded control color is incorrect.");
+        Assert(brandGreen == Parse("#FF36E322"), "Razer green color is incorrect.");
 
         AssertContrast("primary text on page", primary, page);
         AssertContrast("primary text on card", primary, card);
@@ -667,6 +1617,37 @@ internal static class Program
         AssertContrast("warning on diagnostic surface", warning, diagnosticSurface);
         AssertContrast("success on diagnostic surface", success, diagnosticSurface);
         AssertContrast("success badge text on success surface", successSurfaceText, successSurface);
+    }
+
+    private static void VerifyTablerIconResources(System.Windows.Application application)
+    {
+        var geometryKeys = new[]
+        {
+            "KeyboardIconGeometry",
+            "MouseIconGeometry",
+            "ClockIconGeometry",
+            "WarningIconGeometry",
+            "InfoIconGeometry",
+            "ErrorIconGeometry",
+            "CopyIconGeometry",
+            "DeleteIconGeometry",
+            "DragHandleGeometry",
+            "ChevronRightIconGeometry",
+            "ChevronDownIconGeometry",
+            "CheckIconGeometry",
+            "StackIconGeometry",
+            "SettingsIconGeometry",
+        };
+
+        foreach (var key in geometryKeys)
+        {
+            Assert(application.TryFindResource(key) is Geometry, $"Tabler icon resource {key} is missing.");
+        }
+
+        var iconStyle = application.TryFindResource("TablerIconPathStyle") as Style;
+        Assert(iconStyle is not null && iconStyle.TargetType == typeof(System.Windows.Shapes.Path), "Tabler icon path style is missing or invalid.");
+        Assert(iconStyle!.Setters.OfType<Setter>().Any(item => item.Property == System.Windows.Shapes.Shape.StrokeThicknessProperty), "Tabler icon style does not define a shared stroke thickness.");
+        Assert(iconStyle.Setters.OfType<Setter>().Any(item => item.Property == System.Windows.Shapes.Shape.StrokeLineJoinProperty), "Tabler icon style does not define rounded line joins.");
     }
 
     private static Color GetColor(System.Windows.Application application, string key) =>
@@ -704,19 +1685,6 @@ internal static class Program
         channel <= 0.04045 ? channel / 12.92 : Math.Pow((channel + 0.055) / 1.055, 2.4);
 
     private static Color Parse(string value) => (Color)ColorConverter.ConvertFromString(value)!;
-
-    private static string ReadExpectedTheme(IReadOnlyList<string> args)
-    {
-        for (var index = 0; index + 1 < args.Count; index++)
-        {
-            if (string.Equals(args[index], "--theme-test", StringComparison.OrdinalIgnoreCase))
-            {
-                return args[index + 1].ToLowerInvariant();
-            }
-        }
-
-        throw new InvalidOperationException("WPF smoke test requires --theme-test.");
-    }
 
     private static void Assert(bool condition, string message)
     {

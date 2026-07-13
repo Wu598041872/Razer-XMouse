@@ -1,6 +1,7 @@
 using XMacroBridge.Application.Formats;
 using XMacroBridge.Core.Diagnostics;
 using XMacroBridge.Core.Models;
+using System.Text;
 
 namespace XMacroBridge.Application.Exporting;
 
@@ -153,6 +154,28 @@ public sealed class SafeExportService
             DeleteIfExists(temporaryPath);
             DeleteIfExists(backupPath);
         }
+    }
+
+    public async Task<MacroTextResult> ExportMacroTextAsync(
+        MacroDocument document,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        if (!registry.TryGetExporter("xmbc.macro.text", out var exporter) || exporter is null)
+        {
+            return new MacroTextResult(
+                null,
+                [new ConversionDiagnostic(
+                    "EXPORT_FORMAT_UNSUPPORTED",
+                    DiagnosticSeverity.Error,
+                    "没有可用的 X-Mouse 宏文本导出器。")]);
+        }
+
+        await using var output = new MemoryStream();
+        var diagnostics = await exporter.ExportAsync(document, output, cancellationToken).ConfigureAwait(false);
+        return diagnostics.Any(item => item.Severity == DiagnosticSeverity.Error)
+            ? new MacroTextResult(null, diagnostics)
+            : new MacroTextResult(Encoding.UTF8.GetString(output.ToArray()), diagnostics);
     }
 
     private static bool PathsEqual(string first, string second)

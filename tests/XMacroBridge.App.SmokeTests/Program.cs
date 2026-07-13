@@ -13,10 +13,12 @@ using System.Reflection;
 using System.Text.RegularExpressions;
 using XMacroBridge.Core.Diagnostics;
 using XMacroBridge.Core.Models;
+using XMacroBridge.Application.Library;
 using XMacroBridge.Presentation.Workspace;
 using XMacroBridge.Presentation.Library;
 using MacroMouseButton = XMacroBridge.Core.Models.MouseButton;
 using Ellipse = System.Windows.Shapes.Ellipse;
+using ShapePath = System.Windows.Shapes.Path;
 
 namespace XMacroBridge.App.SmokeTests;
 
@@ -83,6 +85,7 @@ internal static class Program
             var macroList = Find<ListBox>(window, "MacroList");
             var eventTimeline = Find<DataGrid>(window, "EventTimeline");
             var exportButton = Find<Button>(window, "ExportButton");
+            var saveToLibraryButton = Find<Button>(window, "SaveToLibraryButton");
             var importFilesButton = Find<Button>(window, "ImportFilesButton");
             var importTextButton = Find<Button>(window, "ImportTextButton");
             var cancelButton = Find<Button>(window, "CancelButton");
@@ -139,6 +142,7 @@ internal static class Program
             Assert(eventTimeline.Columns[0] is DataGridTemplateColumn, "Synapse-style timeline column should use an event template.");
             Assert(eventTimeline.Columns[0].ActualWidth > 0, "Synapse-style timeline event column has no measured width.");
             Assert(eventTimeline.SelectionMode == DataGridSelectionMode.Extended, "Timeline must support extended multi-selection.");
+            VerifyTimelineEventIconAlignment(application, eventTimeline);
             Assert(exportButton.IsEnabled, "Export should be enabled for the selected valid fixture.");
             Assert(importFilesButton.IsEnabled, "Import should be enabled after startup import completes.");
             Assert(importTextButton.IsEnabled, "Text import should be enabled after startup import completes.");
@@ -191,9 +195,8 @@ internal static class Program
             VerifyDpiAwareness(window);
             VerifyWindowChrome(window, minimizeWindow, maximizeRestoreWindow, closeWindow);
             Assert(
-                !Descendants(window).OfType<TextBlock>().Any(item => item.Text == "本地离线") &&
-                !Descendants(window).OfType<Ellipse>().Any(),
-                "Title bar local-offline label and green status dot should be removed.");
+                !Descendants(window).OfType<TextBlock>().Any(item => item.Text == "本地离线"),
+                "The obsolete title-bar local-offline label should remain removed.");
             VerifyTitleBarNavigationStability(window, macroNavigation, libraryNavigation, settingsNavigation);
             VerifyControlAlignment(
                 window,
@@ -217,6 +220,9 @@ internal static class Program
                 targetFormatLabel,
                 targetFormat,
                 severityFilter);
+            Assert(saveToLibraryButton.MinWidth == 128 && exportButton.MinWidth == 136 &&
+                   saveToLibraryButton.Height == 40 && exportButton.Height == 40,
+                "Workspace save/export actions do not match the reference dimensions.");
             VerifyParameterInputAlignment(
                 Find<TextBox>(window, "NewDelayMillisecondsTextBox"),
                 virtualKeyTextBox);
@@ -233,7 +239,7 @@ internal static class Program
                 scopeFilter,
                 cancelButton,
                 insertNestedMacro);
-            VerifyLibraryNavigation(
+            await VerifyLibraryNavigation(
                 window,
                 macroNavigation,
                 libraryNavigation,
@@ -243,7 +249,8 @@ internal static class Program
                 workspaceToolbar,
                 libraryToolbar,
                 settingsToolbar,
-                settingsContent);
+                settingsContent,
+                Environment.GetCommandLineArgs().Skip(1).First());
             VerifyTimelineResponsiveResize(window, viewModel, eventTimeline);
             VerifyKeyboardContract(
                 importFilesButton,
@@ -405,7 +412,7 @@ internal static class Program
             "Selecting Razer XML did not restore the backend target format.");
     }
 
-    private static void VerifyLibraryNavigation(
+    private static async Task VerifyLibraryNavigation(
         Window window,
         Button macroNavigation,
         Button libraryNavigation,
@@ -415,7 +422,8 @@ internal static class Program
         Border workspaceToolbar,
         Border libraryToolbar,
         Border settingsToolbar,
-        ScrollViewer settingsContent)
+        ScrollViewer settingsContent,
+        string razerFixturePath)
     {
         var libraryViewModel = libraryContent.DataContext as MacroLibraryViewModel
             ?? throw new InvalidOperationException("Macro library view does not expose its view model.");
@@ -430,21 +438,95 @@ internal static class Program
         Assert(libraryToolbar.Visibility == Visibility.Visible && workspaceToolbar.Visibility == Visibility.Collapsed, "Macro library toolbar did not replace the conversion toolbar.");
         Assert(Find<TextBox>(window, "LibrarySearchTextBox").IsEnabled, "Macro library search is unavailable.");
         Assert(Find<Button>(window, "RefreshLibraryButton").IsEnabled, "Macro library refresh is unavailable.");
+        for (var attempt = 0; attempt < 100 && libraryViewModel.IsBusy; attempt++)
+        {
+            await Task.Delay(20);
+        }
+
+        if (libraryViewModel.VisibleItems.Count == 0)
+        {
+            await libraryViewModel.SaveTextAsync(string.Empty, "smoke-xmouse", "e{WAITMS:30}{LMB}");
+            await libraryViewModel.ImportFilesAsync(string.Empty, [razerFixturePath], MacroLibraryItemKind.RazerXml);
+        }
+
+        libraryViewModel.SelectedFormat = "all";
+        window.UpdateLayout();
         Assert(libraryViewModel.CanModifyLibrary == !libraryViewModel.IsBusy, "Macro library busy-state action gate is inconsistent.");
-        Assert(Find<ListBox>(libraryContent, "XMouseList").AllowDrop && Find<ListBox>(libraryContent, "RazerList").AllowDrop,
-            "Macro library lists do not accept drag reordering.");
+        var formatFilterList = Find<ListBox>(libraryContent, "FormatFilterList");
+        Assert(formatFilterList.Items.Count == 3,
+            "Macro library must expose All, XMouse and Razer 4 format categories inside the list panel.");
+        Assert(ScrollViewer.GetHorizontalScrollBarVisibility(formatFilterList) == ScrollBarVisibility.Disabled &&
+               ScrollViewer.GetVerticalScrollBarVisibility(formatFilterList) == ScrollBarVisibility.Disabled,
+            "Macro library format categories must not create an extra scroll bar.");
+        formatFilterList.ApplyTemplate();
+        formatFilterList.UpdateLayout();
+        Assert(!Descendants(formatFilterList).OfType<ScrollBar>().Any(item => item.IsVisible),
+            "Macro library format category strip still renders a redundant scroll thumb.");
+        Assert(Descendants(formatFilterList).OfType<StackPanel>().Any(item => item.Orientation == Orientation.Horizontal),
+            "Macro library format categories must use the compact left-aligned reference layout.");
+        var formatItemWidths = formatFilterList.Items.Cast<object>()
+            .Select(item => formatFilterList.ItemContainerGenerator.ContainerFromItem(item) as ListBoxItem)
+            .Where(item => item is not null)
+            .Select(item => item!.ActualWidth)
+            .ToArray();
+        Assert(formatItemWidths.Length == 3 && formatItemWidths.Sum() < formatFilterList.ActualWidth * 0.75,
+            "Macro library format categories should remain compact instead of stretching across the row.");
+        var selectedFormatItem = formatFilterList.ItemContainerGenerator.ContainerFromIndex(0) as ListBoxItem
+            ?? throw new InvalidOperationException("Selected macro format category was not realized.");
+        selectedFormatItem.ApplyTemplate();
+        selectedFormatItem.UpdateLayout();
+        var selectedFormatBorder = selectedFormatItem.Template.FindName("FilterBorder", selectedFormatItem) as Border
+            ?? throw new InvalidOperationException("Macro format category selection border was not generated.");
+        var selectedBorderTopLeft = selectedFormatBorder.TranslatePoint(new Point(0, 0), formatFilterList);
+        var selectedBorderBottomRight = selectedFormatBorder.TranslatePoint(
+            new Point(selectedFormatBorder.ActualWidth, selectedFormatBorder.ActualHeight),
+            formatFilterList);
+        var selectedBorderTopLeftInItem = selectedFormatBorder.TranslatePoint(new Point(0, 0), selectedFormatItem);
+        var selectedBorderBottomRightInItem = selectedFormatBorder.TranslatePoint(
+            new Point(selectedFormatBorder.ActualWidth, selectedFormatBorder.ActualHeight),
+            selectedFormatItem);
+        Assert(selectedBorderTopLeft.X >= 0.75 && selectedBorderTopLeft.Y >= 0.75 &&
+               selectedBorderBottomRight.X <= formatFilterList.ActualWidth - 0.75 &&
+               selectedBorderBottomRight.Y <= formatFilterList.ActualHeight - 0.75,
+            $"Macro format selected border touches the ListBox clipping edge and may render incompletely at high DPI " +
+            $"(topLeft={selectedBorderTopLeft}, bottomRight={selectedBorderBottomRight}, list={formatFilterList.ActualWidth}x{formatFilterList.ActualHeight}).");
+        Assert(selectedBorderTopLeftInItem.Y >= 0.75 &&
+               selectedBorderBottomRightInItem.Y <= selectedFormatItem.ActualHeight - 0.75,
+            $"Macro format selected border must be inset inside its item so the bottom stroke remains visible " +
+            $"(topLeft={selectedBorderTopLeftInItem}, bottomRight={selectedBorderBottomRightInItem}, itemHeight={selectedFormatItem.ActualHeight}).");
+        Assert(selectedFormatBorder.BorderThickness == new Thickness(1),
+            "Macro format selected border must render all four one-DIP edges.");
+        Assert(libraryViewModel.VisibleItems.All(item => item.EventCount is > 0),
+            "Macro library rows do not expose parsed event counts.");
+        Assert(Find<ListBox>(libraryContent, "UnifiedMacroList").AllowDrop,
+            "Unified macro library list does not accept drag reordering.");
         Assert(libraryViewModel.CanReorderLibraryItems,
             "Macro library custom ordering should be available in the default unsorted view.");
         Assert(
-            Find<StackPanel>(libraryContent, "XMouseEmptyState").Visibility == (libraryViewModel.HasXMouseItems ? Visibility.Collapsed : Visibility.Visible),
-            "XMouse library empty state does not match the visible collection.");
+            Find<StackPanel>(libraryContent, "UnifiedEmptyState").Visibility == (libraryViewModel.HasVisibleItems ? Visibility.Collapsed : Visibility.Visible),
+            "Unified macro library empty state does not match the visible collection.");
         Assert(
-            Find<StackPanel>(libraryContent, "RazerEmptyState").Visibility == (libraryViewModel.HasRazerItems ? Visibility.Collapsed : Visibility.Visible),
-            "Razer library empty state does not match the visible collection.");
-        Assert(
-            Find<Grid>(libraryContent, "XMouseActionPanel").Visibility == (libraryViewModel.HasSelectedXMouseItem ? Visibility.Visible : Visibility.Collapsed),
-            "XMouse library action panel does not follow selection state.");
+            Find<Grid>(libraryContent, "UnifiedDetailPanel").Visibility == (libraryViewModel.HasSelectedItem ? Visibility.Visible : Visibility.Collapsed),
+            "Unified macro library detail panel does not follow selection state.");
         Assert(Find<Border>(libraryContent, "LibraryStatusBar").IsVisible, "Macro library status bar is not visible.");
+
+        var xmouse = libraryViewModel.VisibleItems.First(item => item.Kind == MacroLibraryItemKind.XMouseText);
+        libraryViewModel.SelectedItem = xmouse;
+        await libraryViewModel.LoadPreviewAsync(xmouse);
+        window.UpdateLayout();
+        Assert(Find<TextBox>(libraryContent, "LibraryPreviewTextBox").Text.Contains("WAITMS", StringComparison.Ordinal),
+            "XMouse content preview is empty.");
+        Assert(Find<TextBlock>(libraryContent, "DetailEventCountText").Text != "—",
+            "Macro detail event count is unavailable.");
+
+        var razer = libraryViewModel.VisibleItems.First(item => item.Kind == MacroLibraryItemKind.RazerXml);
+        libraryViewModel.SelectedItem = razer;
+        await libraryViewModel.LoadPreviewAsync(razer);
+        window.UpdateLayout();
+        Assert(Find<TextBox>(libraryContent, "LibraryPreviewTextBox").Text.Contains("<Macro", StringComparison.Ordinal),
+            "Razer XML content preview is empty or used the XMouse-only reader.");
+        Assert(Find<TextBlock>(libraryContent, "DetailFormatText").Text == "雷云 4",
+            "Macro detail format label does not follow the selected item.");
 
         settingsNavigation.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         window.UpdateLayout();
@@ -494,7 +576,7 @@ internal static class Program
         Assert(!viewModel.HasTimelineEvents, "Empty macro should expose no timeline events.");
         Assert(emptyMacroState.Visibility == Visibility.Visible, "Empty-macro guidance is not visible.");
         Assert(noMacroEmptyState.Visibility == Visibility.Collapsed, "No-macro guidance should hide when an empty macro is selected.");
-        Assert(selectionToolbar.Visibility == Visibility.Visible && insertionToolbar.Visibility == Visibility.Visible, "Insertion tools should appear for an empty selected macro.");
+        Assert(selectionToolbar.Visibility == Visibility.Visible && insertionToolbar.Visibility == Visibility.Collapsed, "Add-operation parameters should stay collapsed until requested.");
         Assert(diagnosticPanel.Visibility == Visibility.Visible, "Diagnostic panel should appear for a selected empty macro.");
 
         viewModel.SelectedMacro = originalMacro;
@@ -632,7 +714,7 @@ internal static class Program
         var chrome = WindowChrome.GetWindowChrome(window)
             ?? throw new InvalidOperationException("Main window does not expose custom WindowChrome.");
         Assert(window.WindowStyle == WindowStyle.None, "Razer-style title bar must replace the native Windows frame.");
-        Assert(chrome.CaptionHeight == 40, "Custom title bar caption height is incorrect.");
+        Assert(chrome.CaptionHeight == 44, "Custom title bar caption height is incorrect.");
         Assert(chrome.ResizeBorderThickness == new Thickness(6), "Custom title bar resize border is incorrect.");
         Assert(!chrome.UseAeroCaptionButtons, "Custom title bar should use application-owned caption buttons.");
         foreach (var button in new[] { minimizeWindow, maximizeRestoreWindow, closeWindow })
@@ -640,16 +722,16 @@ internal static class Program
             Assert(WindowChrome.GetIsHitTestVisibleInChrome(button), $"{button.Name} is not clickable inside WindowChrome.");
             Assert(!button.IsTabStop && !button.Focusable, $"{button.Name} should not enter the workspace Tab order.");
             Assert(!string.IsNullOrWhiteSpace(AutomationProperties.GetName(button)), $"{button.Name} has no accessibility name.");
-            Assert(button.ActualWidth == 46 && button.ActualHeight == 40, $"{button.Name} does not match the Razer-style caption size.");
+            Assert(button.ActualWidth == 46 && button.ActualHeight == 44, $"{button.Name} does not match the guide caption size.");
         }
     }
 
     private static void VerifyGreenHighlightForeground(System.Windows.Application application, params Button[] buttons)
     {
-        var expected = GetColor(application, "RazerGreenTextBrush");
+        var expected = GetColor(application, "RazerGreenBrush");
         foreach (var button in buttons)
         {
-            Assert(button.Foreground is SolidColorBrush brush && brush.Color == expected, $"{button.Name} should use dark text on green highlight buttons.");
+            Assert(button.Foreground is SolidColorBrush brush && brush.Color == expected, $"{button.Name} should use green text on outlined primary buttons.");
             button.ApplyTemplate();
             button.UpdateLayout();
             foreach (var presenter in Descendants(button).OfType<ContentPresenter>())
@@ -657,14 +739,14 @@ internal static class Program
                 var inherited = TextElement.GetForeground(presenter);
                 Assert(
                     inherited is SolidColorBrush inheritedBrush && inheritedBrush.Color == expected,
-                    $"{button.Name} content presenter did not inherit the dark green-highlight text color.");
+                    $"{button.Name} content presenter did not inherit the guide accent text color.");
             }
 
             foreach (var textBlock in Descendants(button).OfType<TextBlock>())
             {
                 Assert(
                     textBlock.Foreground is SolidColorBrush textBrush && textBrush.Color == expected,
-                    $"{button.Name} rendered text is not dark on a green highlight.");
+                    $"{button.Name} rendered text is not green on the outlined primary action.");
             }
         }
     }
@@ -735,6 +817,58 @@ internal static class Program
         }
     }
 
+    private static void VerifyTimelineEventIconAlignment(System.Windows.Application application, DataGrid eventTimeline)
+    {
+        eventTimeline.UpdateLayout();
+        var rows = Descendants(eventTimeline)
+            .OfType<DataGridRow>()
+            .Where(item => item.IsVisible)
+            .Take(24)
+            .ToArray();
+        Assert(rows.Length >= 3, "Timeline did not realize enough rows for icon alignment verification.");
+
+        var eventIconCenters = new List<double>();
+        var transitionIconCenters = new List<double>();
+        var downGeometry = (Geometry)application.FindResource("ArrowBarToDownIconGeometry");
+        var upGeometry = (Geometry)application.FindResource("ArrowBarUpIconGeometry");
+
+        foreach (var row in rows)
+        {
+            row.ApplyTemplate();
+            row.UpdateLayout();
+            var paths = Descendants(row).OfType<ShapePath>().ToArray();
+            var eventIcon = paths.FirstOrDefault(item => Equals(item.Tag, "TimelineEventTypeIcon"));
+            if (eventIcon is not null && eventIcon.IsVisible && eventIcon.ActualWidth > 0)
+            {
+                Assert(eventIcon.HorizontalAlignment == HorizontalAlignment.Center,
+                    "Timeline event type icon is not centered in its column.");
+                eventIconCenters.Add(eventIcon.TranslatePoint(new Point(eventIcon.ActualWidth / 2, 0), eventTimeline).X);
+            }
+
+            var transitionIcon = paths.FirstOrDefault(item => Equals(item.Tag, "TimelineTransitionIcon"));
+            if (transitionIcon is null || row.Item is not MacroEventRow eventRow || string.IsNullOrEmpty(eventRow.TransitionSymbol))
+            {
+                continue;
+            }
+
+            Assert(transitionIcon.IsVisible && transitionIcon.ActualWidth > 0,
+                "Timeline press/release arrow icon is not visible.");
+            Assert(transitionIcon.HorizontalAlignment == HorizontalAlignment.Center,
+                "Timeline press/release arrow icon is not centered in its column.");
+            Assert(transitionIcon.StrokeThickness >= 2.2,
+                "Timeline press/release arrow icon is thinner than the approved Tabler reference.");
+            var expectedGeometry = eventRow.TransitionSymbol == "↓" ? downGeometry : upGeometry;
+            Assert(transitionIcon.Data?.ToString() == expectedGeometry.ToString(),
+                "Timeline press/release arrow does not use the approved Tabler arrow-bar geometry.");
+            transitionIconCenters.Add(transitionIcon.TranslatePoint(new Point(transitionIcon.ActualWidth / 2, 0), eventTimeline).X);
+        }
+
+        Assert(eventIconCenters.Count >= 3 && eventIconCenters.Max() - eventIconCenters.Min() <= 0.75,
+            "Timeline event type icons do not share one vertical center line.");
+        Assert(transitionIconCenters.Count >= 2 && transitionIconCenters.Max() - transitionIconCenters.Min() <= 0.75,
+            "Timeline press/release arrows do not share one vertical center line.");
+    }
+
     private static void VerifyControlAlignment(
         Window window,
         FrameworkElement currentMacro,
@@ -752,21 +886,12 @@ internal static class Program
         AssertBottomAligned(window, "delay toolbar", newDelay, insertDelay);
         AssertBottomAligned(window, "keyboard toolbar", virtualKey, keyTransition, insertKey);
         AssertBottomAligned(window, "diagnostic filters", severityFilter, scopeFilter);
-        foreach (var control in new FrameworkElement[]
-                 {
-                     currentMacro,
-                     targetFormat,
-                     exportButton,
-                     newDelay,
-                     insertDelay,
-                     virtualKey,
-                     keyTransition,
-                     insertKey,
-                     severityFilter,
-                     scopeFilter,
-                 })
+        Assert(Math.Abs(currentMacro.ActualHeight - 34) <= 0.5 && Math.Abs(targetFormat.ActualHeight - 34) <= 0.5,
+            "Header fields must use the reference 34-DIP field height.");
+        Assert(Math.Abs(exportButton.ActualHeight - 40) <= 0.5, "Safe export must use the reference 40-DIP action height.");
+        foreach (var control in new FrameworkElement[] { newDelay, insertDelay, virtualKey, keyTransition, insertKey, severityFilter, scopeFilter })
         {
-            Assert(Math.Abs(control.ActualHeight - 32) <= 0.5, $"{control.Name} is not aligned to the 32-DIP control height.");
+            Assert(Math.Abs(control.ActualHeight - 36) <= 0.5, $"{control.Name} is not aligned to the guide 36-DIP control height.");
         }
     }
 
@@ -791,19 +916,19 @@ internal static class Program
         ComboBox targetFormat,
         ComboBox ordinaryComboBox)
     {
-        Assert(currentMacroLabel.HorizontalAlignment == HorizontalAlignment.Center, "Current macro label is not centered in its field column.");
-        Assert(targetFormatLabel.HorizontalAlignment == HorizontalAlignment.Center, "Target format label is not centered in its field column.");
-        Assert(currentMacroValue.HorizontalAlignment == HorizontalAlignment.Center && currentMacroValue.TextAlignment == TextAlignment.Center,
-            "Current macro value is not centered in its read-only field.");
-        Assert(targetFormat.HorizontalContentAlignment == HorizontalAlignment.Center,
-            "Target format selected value is not centered.");
+        Assert(currentMacroLabel.HorizontalAlignment == HorizontalAlignment.Left, "Current macro label does not match the left-aligned reference layout.");
+        Assert(targetFormatLabel.HorizontalAlignment == HorizontalAlignment.Left, "Target format label does not match the left-aligned reference layout.");
+        Assert(currentMacroValue.HorizontalAlignment == HorizontalAlignment.Stretch && currentMacroValue.TextAlignment == TextAlignment.Left,
+            "Current macro value does not match the left-aligned reference field.");
+        Assert(targetFormat.HorizontalContentAlignment == HorizontalAlignment.Left,
+            "Target format selected value does not match the left-aligned reference field.");
         Assert(ordinaryComboBox.HorizontalContentAlignment == HorizontalAlignment.Left,
             "Ordinary combo boxes should retain their default left alignment.");
 
-        var controlColor = GetColor(application, "ControlBrush");
+        var fieldColor = GetColor(application, "WindowBackgroundBrush");
         var borderColor = GetColor(application, "BorderBrush");
-        Assert(currentMacroHost.Background is SolidColorBrush background && background.Color == controlColor,
-            "Current macro field does not use the standard control surface.");
+        Assert(currentMacroHost.Background is SolidColorBrush background && background.Color == fieldColor,
+            "Current macro field does not use the reference dark input surface.");
         Assert(currentMacroHost.BorderBrush is SolidColorBrush border && border.Color == borderColor && currentMacroHost.BorderThickness.Left == 1,
             "Current macro field does not use the standard weak border.");
         Assert(currentMacroHost.CornerRadius == new CornerRadius(3), "Current macro field corner radius is inconsistent with other controls.");
@@ -821,8 +946,8 @@ internal static class Program
         var ordinaryValueText = Descendants(ordinaryComboBox).OfType<TextBlock>()
             .FirstOrDefault(item => item.Text == ordinaryComboBox.Text)
             ?? throw new InvalidOperationException("Ordinary combo-box selected-value text was not rendered.");
-        Assert(targetValueText.HorizontalAlignment == HorizontalAlignment.Center,
-            "Target format template did not apply centered content alignment.");
+        Assert(targetValueText.HorizontalAlignment == HorizontalAlignment.Left,
+            "Target format template did not apply the reference left alignment.");
         Assert(ordinaryValueText.HorizontalAlignment == HorizontalAlignment.Left,
             "Combo-box template changed ordinary selected values away from left alignment.");
     }
@@ -1418,7 +1543,10 @@ internal static class Program
             actualBrush.Color == expectedBrush.Color,
             $"{button.Name} did not apply {expectedBrushKey} while focused " +
             $"(actual={actualBrush.Color}, expected={expectedBrush.Color}, focused={button.IsKeyboardFocused}, within={button.IsKeyboardFocusWithin}).");
-        Assert(border.BorderThickness.Left >= 2, $"{button.Name} focus ring is thinner than 2 DIP.");
+        var focusRing = button.Template.FindName("FocusRing", button) as Border
+            ?? throw new InvalidOperationException($"{button.Name} outer focus ring was not generated.");
+        Assert(focusRing.Visibility == Visibility.Visible && focusRing.BorderThickness.Left >= 2,
+            $"{button.Name} does not expose the guide 2-DIP outer focus ring.");
     }
 
     private static void VerifyGeneratedAccessibility(
@@ -1586,11 +1714,11 @@ internal static class Program
         var control = GetColor(application, "ControlBrush");
         var brandGreen = GetColor(application, "RazerGreenBrush");
 
-        Assert(page == Parse("#FF202020"), "Fixed Razer page color is incorrect.");
-        Assert(navigation == Parse("#FF090909"), "Branded navigation color is incorrect.");
-        Assert(editor == Parse("#FF101010"), "Branded editor color is incorrect.");
-        Assert(control == Parse("#FF242424"), "Branded control color is incorrect.");
-        Assert(brandGreen == Parse("#FF36E322"), "Razer green color is incorrect.");
+        Assert(page == Parse("#FF161616"), "Guide background color is incorrect.");
+        Assert(navigation == Parse("#FF161616"), "Guide navigation color is incorrect.");
+        Assert(editor == Parse("#FF161616"), "Guide editor color is incorrect.");
+        Assert(control == Parse("#FF222222"), "Guide surface color is incorrect.");
+        Assert(brandGreen == Parse("#FF44D62C"), "Guide accent green is incorrect.");
 
         AssertContrast("primary text on page", primary, page);
         AssertContrast("primary text on card", primary, card);

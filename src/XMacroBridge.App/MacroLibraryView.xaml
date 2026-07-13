@@ -4,36 +4,109 @@
              AutomationProperties.Name="宏库页面">
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
-        <Style x:Key="LibraryItemStyle" TargetType="ListBoxItem">
-            <Setter Property="MinHeight" Value="52" />
-            <Setter Property="Margin" Value="0,0,0,4" />
-            <Setter Property="Padding" Value="12,8" />
+
+        <Style x:Key="LibraryGroupItemStyle" TargetType="ListBoxItem">
+            <Setter Property="MinHeight" Value="42" />
+            <Setter Property="Margin" Value="0,0,0,2" />
+            <Setter Property="Padding" Value="10,0" />
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderBrush" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="2,0,0,0" />
+            <Setter Property="BorderThickness" Value="1" />
             <Setter Property="FocusVisualStyle" Value="{x:Null}" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ListBoxItem">
                         <Border x:Name="ItemBorder" Padding="{TemplateBinding Padding}"
                                 Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="1" CornerRadius="2">
-                            <Grid>
-                                <Border x:Name="SelectionAccent" Width="3" Margin="-12,-8,0,-8"
-                                        HorizontalAlignment="Left" Background="{DynamicResource RazerGreenBrush}" Visibility="Collapsed" />
-                                <ContentPresenter />
-                            </Grid>
+                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="3">
+                            <ContentPresenter />
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource RowHoverBrush}" />
-                                <Setter TargetName="ItemBorder" Property="BorderBrush" Value="{DynamicResource StrongBorderBrush}" />
+                                <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource SurfaceBrush}" />
+                                <Setter TargetName="ItemBorder" Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+                                <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
                             </Trigger>
                             <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource SelectedGreenMutedBrush}" />
                                 <Setter TargetName="ItemBorder" Property="BorderBrush" Value="{DynamicResource RazerGreenBrush}" />
-                                <Setter TargetName="SelectionAccent" Property="Visibility" Value="Visible" />
+                                <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="ItemBorder" Property="BorderBrush" Value="{DynamicResource FocusRingBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="LibraryFormatFilterStyle" TargetType="ListBoxItem">
+            <Setter Property="Height" Value="32" />
+            <Setter Property="Padding" Value="11,0" />
+            <Setter Property="Margin" Value="0,0,6,0" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="SnapsToDevicePixels" Value="True" />
+            <Setter Property="UseLayoutRounding" Value="True" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="FilterBorder" Height="30" Padding="{TemplateBinding Padding}"
+                                VerticalAlignment="Center" SnapsToDevicePixels="True" UseLayoutRounding="True"
+                                Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="3">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="FilterBorder" Property="BorderBrush" Value="{DynamicResource RazerGreenBrush}" />
+                                <Setter Property="Foreground" Value="{DynamicResource RazerGreenBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="FilterBorder" Property="BorderBrush" Value="{DynamicResource FocusRingBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="LibraryMacroItemStyle" TargetType="ListBoxItem">
+            <Setter Property="MinHeight" Value="64" />
+            <Setter Property="Margin" Value="0,0,0,5" />
+            <Setter Property="Padding" Value="10,8" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="ItemBorder" Padding="{TemplateBinding Padding}"
+                                Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="3">
+                            <ContentPresenter />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource SurfaceBrush}" />
+                                <Setter TargetName="ItemBorder" Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource SurfaceBrush}" />
+                                <Setter TargetName="ItemBorder" Property="BorderBrush" Value="{DynamicResource RazerGreenBrush}" />
                             </Trigger>
                             <Trigger Property="IsKeyboardFocused" Value="True">
                                 <Setter TargetName="ItemBorder" Property="BorderBrush" Value="{DynamicResource FocusRingBrush}" />
@@ -53,91 +126,109 @@
         </Style>
     </UserControl.Resources>
 
-    <Grid Margin="12,16">
-        <Grid.RowDefinitions><RowDefinition Height="*" /><RowDefinition Height="8" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+    <Grid Margin="12">
+        <Grid.RowDefinitions><RowDefinition Height="*" /><RowDefinition Height="8" /><RowDefinition Height="34" /></Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="205" MinWidth="180" />
+            <ColumnDefinition Width="220" MinWidth="190" />
             <ColumnDefinition Width="12" />
-            <ColumnDefinition Width="*" MinWidth="260" />
+            <ColumnDefinition Width="0.9*" MinWidth="290" />
             <ColumnDefinition Width="12" />
-            <ColumnDefinition Width="*" MinWidth="260" />
+            <ColumnDefinition Width="1.15*" MinWidth="330" />
         </Grid.ColumnDefinitions>
 
-        <Border Grid.Row="0" Grid.Column="0" Padding="14" Style="{StaticResource CardStyle}">
+        <Border Grid.Column="0" Style="{StaticResource CardStyle}">
             <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="10" />
-                    <RowDefinition Height="*" />
-                    <RowDefinition Height="10" />
-                    <RowDefinition Height="Auto" />
-                </Grid.RowDefinitions>
-                <Grid Height="32">
+                <Grid.RowDefinitions><RowDefinition Height="50" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                <Grid Margin="14,0">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                     <TextBlock VerticalAlignment="Center" Style="{StaticResource SectionTitleStyle}" Text="分组" />
-                    <Button Grid.Column="1" MinWidth="42" Click="CreateGroup_Click" Content="新增" IsEnabled="{Binding CanModifyLibrary}" Style="{StaticResource SecondaryButtonStyle}" />
+                    <Button Grid.Column="1" MinWidth="54" Click="CreateGroup_Click" Content="新增"
+                            IsEnabled="{Binding CanModifyLibrary}" Style="{StaticResource SecondaryButtonStyle}" />
                 </Grid>
-                <ListBox x:Name="GroupList"
-                         Grid.Row="2"
-                         AutomationProperties.Name="宏库分组"
-                         ItemsSource="{Binding GroupOptions}"
-                         SelectedValuePath="Key"
+                <Border Grid.Row="0" VerticalAlignment="Bottom" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" />
+                <ListBox x:Name="GroupList" Grid.Row="1" Margin="8" AutomationProperties.Name="宏库分组"
+                         ItemsSource="{Binding GroupOptions}" SelectedValuePath="Key"
                          SelectedValue="{Binding SelectedScope, Mode=TwoWay}"
-                         Background="Transparent"
-                         BorderThickness="0">
+                         Background="Transparent" BorderThickness="0" ItemContainerStyle="{StaticResource LibraryGroupItemStyle}">
                     <ListBox.ItemTemplate>
                         <DataTemplate>
-                            <Grid Margin="6,4">
+                            <Grid>
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" />
-                                <TextBlock Grid.Column="1" Margin="8,0,0,0" Style="{StaticResource CaptionStyle}" Text="{Binding ItemCount}" />
+                                <TextBlock VerticalAlignment="Center" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}"
+                                           Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center"
+                                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}"
+                                           FontFamily="{DynamicResource MonospaceFontFamily}" Text="{Binding ItemCount}" />
                             </Grid>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>
-                <StackPanel Grid.Row="4">
+                <Border Grid.Row="2" Padding="12" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0">
                     <Grid>
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="6" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                        <Button Click="RenameGroup_Click" Content="重命名" IsEnabled="{Binding CanRenameSelectedGroup}" Style="{StaticResource SecondaryButtonStyle}" />
-                        <Button Grid.Column="2" Click="DeleteGroup_Click" Content="删除空组" IsEnabled="{Binding CanDeleteSelectedGroup}" Style="{StaticResource DangerButtonStyle}" />
+                        <Grid.RowDefinitions><RowDefinition Height="36" /><RowDefinition Height="6" /><RowDefinition Height="36" /></Grid.RowDefinitions>
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="6" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Button Click="RenameGroup_Click" Content="重命名" IsEnabled="{Binding CanRenameSelectedGroup}" Style="{StaticResource SecondaryButtonStyle}" />
+                            <Button Grid.Column="2" Click="DeleteGroup_Click" Content="删除空组" IsEnabled="{Binding CanDeleteSelectedGroup}" Style="{StaticResource DangerButtonStyle}" />
+                        </Grid>
+                        <Button Grid.Row="2" Click="EmptyTrash_Click" Content="清空回收站" IsEnabled="{Binding CanEmptyTrash}" Style="{StaticResource DangerButtonStyle}" />
                     </Grid>
-                    <Button Margin="0,6,0,0" Click="EmptyTrash_Click" Content="清空回收站" IsEnabled="{Binding CanEmptyTrash}" Style="{StaticResource DangerButtonStyle}" />
-                </StackPanel>
+                </Border>
             </Grid>
         </Border>
 
-        <Border Grid.Row="0" Grid.Column="2" Style="{StaticResource CardStyle}">
+        <Border Grid.Column="2" Style="{StaticResource CardStyle}">
             <Grid>
-                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                <Grid Height="32" Margin="14,12">
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="6" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                    <TextBlock VerticalAlignment="Center" Style="{StaticResource SectionTitleStyle}" Text="XMouse 宏文本" />
-                    <Button Grid.Column="1" Click="NewText_Click" Content="新建" IsEnabled="{Binding CanModifyLibrary}" Style="{StaticResource PrimaryButtonStyle}" />
-                    <Button Grid.Column="3" Click="ImportTextFiles_Click" Content="导入" IsEnabled="{Binding CanModifyLibrary}" Style="{StaticResource SecondaryButtonStyle}" />
+                <Grid.RowDefinitions><RowDefinition Height="50" /><RowDefinition Height="50" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                <Grid Margin="14,0">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <TextBlock VerticalAlignment="Center" Style="{StaticResource SectionTitleStyle}" Text="{Binding SelectedScopeDisplayName}" />
+                    <TextBlock Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource CaptionStyle}" Text="{Binding VisibleItemCountText}" />
                 </Grid>
-                <Grid Grid.Row="1">
-                    <ListBox x:Name="XMouseList"
-                             Margin="8,0"
-                             AutomationProperties.Name="XMouse 宏文本列表"
-                             ItemsSource="{Binding XMouseItems}"
-                             SelectedItem="{Binding SelectedXMouseItem, Mode=TwoWay}"
-                             AllowDrop="True"
-                             PreviewMouseLeftButtonDown="LibraryList_PreviewMouseLeftButtonDown"
-                             PreviewMouseMove="LibraryList_PreviewMouseMove"
-                             DragOver="LibraryList_DragOver"
-                             DragLeave="LibraryList_DragLeave"
-                             Drop="LibraryList_Drop"
-                             SelectionChanged="LibraryList_SelectionChanged"
-                             MouseDoubleClick="OpenSelected_Click"
-                             Background="Transparent"
-                             BorderThickness="0"
-                             ItemContainerStyle="{StaticResource LibraryItemStyle}">
+                <Border Grid.Row="0" VerticalAlignment="Bottom" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" />
+                <Border Grid.Row="1" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
+                    <ListBox x:Name="FormatFilterList" Margin="12,7" AutomationProperties.Name="宏格式筛选"
+                             ItemsSource="{Binding FormatOptions}" SelectedValuePath="Key"
+                             SelectedValue="{Binding SelectedFormat, Mode=TwoWay}"
+                             Background="Transparent" BorderThickness="0" ItemContainerStyle="{StaticResource LibraryFormatFilterStyle}"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                        <ListBox.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" />
+                            </ItemsPanelTemplate>
+                        </ListBox.ItemsPanel>
+                        <ListBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding DisplayName}" /></DataTemplate></ListBox.ItemTemplate>
+                    </ListBox>
+                </Border>
+                <Grid Grid.Row="2">
+                    <ListBox x:Name="UnifiedMacroList" Margin="8" AutomationProperties.Name="统一宏列表"
+                             ItemsSource="{Binding VisibleItems}" SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
+                             AllowDrop="True" PreviewMouseLeftButtonDown="LibraryList_PreviewMouseLeftButtonDown"
+                             PreviewMouseMove="LibraryList_PreviewMouseMove" DragOver="LibraryList_DragOver"
+                             DragLeave="LibraryList_DragLeave" Drop="LibraryList_Drop"
+                             SelectionChanged="LibraryList_SelectionChanged" MouseDoubleClick="OpenSelected_Click"
+                             Background="Transparent" BorderThickness="0" ItemContainerStyle="{StaticResource LibraryMacroItemStyle}">
+                        <ListBox.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="新建 XMouse 宏…" Click="NewText_Click" />
+                                <MenuItem Header="导入宏文件…" Click="ImportAnyFiles_Click" />
+                            </ContextMenu>
+                        </ListBox.ContextMenu>
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <Grid>
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                    <TextBlock VerticalAlignment="Center" FontSize="16" FontWeight="SemiBold" Text="{Binding Name}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}" />
-                                    <Viewbox Grid.Column="1" Width="21" Height="21" Margin="10,0,2,0" VerticalAlignment="Center" IsHitTestVisible="False" AutomationProperties.Name="">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="40" /><ColumnDefinition Width="*" /><ColumnDefinition Width="24" /></Grid.ColumnDefinitions>
+                                    <Border Width="30" Height="30" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                            BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="3">
+                                        <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource RazerGreenBrush}"
+                                                   FontFamily="{DynamicResource MonospaceFontFamily}" FontSize="10" FontWeight="Bold" Text="{Binding FormatMark}" />
+                                    </Border>
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                        <TextBlock FontWeight="SemiBold" Text="{Binding Name}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}" />
+                                        <TextBlock Margin="0,3,0,0" Style="{StaticResource CaptionStyle}" Text="{Binding SecondaryText}" TextTrimming="CharacterEllipsis" ToolTip="{Binding SecondaryText}" />
+                                    </StackPanel>
+                                    <Viewbox Grid.Column="2" Width="17" Height="17" VerticalAlignment="Center" IsHitTestVisible="False" AutomationProperties.Name="">
                                         <Path Data="{DynamicResource StarFilledIconGeometry}" Fill="{DynamicResource RazerGreenBrush}" Stretch="Uniform">
                                             <Path.Style><Style TargetType="Path"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding IsFavorite}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></Path.Style>
                                         </Path>
@@ -146,106 +237,93 @@
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
-                    <StackPanel x:Name="XMouseEmptyState" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="220">
-                        <StackPanel.Style>
-                            <Style TargetType="StackPanel">
-                                <Setter Property="Visibility" Value="Collapsed" />
-                                <Style.Triggers><DataTrigger Binding="{Binding HasXMouseItems}" Value="False"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
-                            </Style>
-                        </StackPanel.Style>
-                        <TextBlock Style="{StaticResource EmptyStateTitleStyle}" Text="暂无 XMouse 宏" />
-                        <TextBlock Margin="0,4,0,10" Style="{StaticResource EmptyStateCaptionStyle}" Text="新建宏文本，或导入已有 TXT 文件。" />
+                    <StackPanel x:Name="UnifiedEmptyState" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="250">
+                        <StackPanel.Style><Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding HasVisibleItems}" Value="False"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></StackPanel.Style>
+                        <TextBlock Style="{StaticResource EmptyStateTitleStyle}" Text="没有符合条件的宏" />
+                        <TextBlock Margin="0,5,0,12" Style="{StaticResource EmptyStateCaptionStyle}" Text="调整分组、格式筛选或搜索条件，也可以新建或导入宏。" />
                         <StackPanel HorizontalAlignment="Center" Orientation="Horizontal">
-                            <Button MinWidth="68" Click="NewText_Click" Content="新建" IsEnabled="{Binding CanModifyLibrary}" Style="{StaticResource PrimaryButtonStyle}" />
-                            <Button Margin="6,0,0,0" MinWidth="68" Click="ImportTextFiles_Click" Content="导入" IsEnabled="{Binding CanModifyLibrary}" Style="{StaticResource SecondaryButtonStyle}" />
+                            <Button MinWidth="72" Click="NewText_Click" Content="新建" Style="{StaticResource SecondaryButtonStyle}" />
+                            <Button Margin="8,0,0,0" MinWidth="72" Click="ImportAnyFiles_Click" Content="导入" Style="{StaticResource PrimaryButtonStyle}" />
                         </StackPanel>
                     </StackPanel>
                 </Grid>
-                <TextBlock Grid.Row="2" Margin="14,7,14,0" Style="{StaticResource CaptionStyle}" Text="{Binding XMousePreviewText}"
-                           TextTrimming="CharacterEllipsis" ToolTip="{Binding XMousePreviewText}" />
-                <Grid x:Name="XMouseActionPanel" Grid.Row="3" Margin="12,10" Visibility="{Binding HasSelectedXMouseItem, Converter={StaticResource BooleanToVisibilityConverter}}">
-                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="6" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                    <Button Tag="xmouse" Click="OpenSelected_Click" Content="在转换区打开" IsEnabled="{Binding CanUseSelectedXMouseItem}" Style="{StaticResource PrimaryButtonStyle}" />
-                    <UniformGrid Grid.Row="2" Columns="4">
-                        <Button Tag="xmouse" Margin="0,0,3,0" Click="EditText_Click" Content="编辑" IsEnabled="{Binding CanUseSelectedXMouseItem}" Style="{StaticResource SecondaryButtonStyle}" />
-                        <Button Tag="xmouse" Margin="3,0" Click="CopyText_Click" Content="复制" IsEnabled="{Binding CanUseSelectedXMouseItem}" Style="{StaticResource SecondaryButtonStyle}" />
-                        <Button Tag="xmouse" Margin="3,0" Click="Favorite_Click" Content="收藏" IsEnabled="{Binding CanUseSelectedXMouseItem}" Style="{StaticResource SecondaryButtonStyle}" />
-                        <Button Tag="xmouse" Margin="3,0,0,0" Click="MoreItemActions_Click" Content="更多" Style="{StaticResource SecondaryButtonStyle}" />
-                    </UniformGrid>
+            </Grid>
+        </Border>
+
+        <Border Grid.Column="4" Style="{StaticResource CardStyle}">
+            <Grid>
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="300">
+                    <StackPanel.Style><Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding HasSelectedItem}" Value="False"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></StackPanel.Style>
+                    <TextBlock Style="{StaticResource EmptyStateTitleStyle}" Text="选择一个宏查看详情" />
+                    <TextBlock Margin="0,5,0,0" Style="{StaticResource EmptyStateCaptionStyle}" Text="宏格式、事件数量和原始内容预览会显示在这里。" />
+                </StackPanel>
+                <Grid x:Name="UnifiedDetailPanel" Visibility="{Binding HasSelectedItem, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <Grid.RowDefinitions><RowDefinition Height="62" /><RowDefinition Height="64" /><RowDefinition Height="*" /><RowDefinition Height="60" /></Grid.RowDefinitions>
+                    <Grid Margin="14,0">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="24" /></Grid.ColumnDefinitions>
+                        <StackPanel MinWidth="0" VerticalAlignment="Center">
+                            <TextBlock FontSize="16" FontWeight="SemiBold" Text="{Binding SelectedItem.Name}" TextTrimming="CharacterEllipsis" ToolTip="{Binding SelectedItem.Name}" />
+                            <TextBlock x:Name="DetailPathText" Margin="0,3,0,0" Style="{StaticResource CaptionStyle}" Text="{Binding SelectedItemPathText}" TextTrimming="CharacterEllipsis" ToolTip="{Binding SelectedItemPathText}" />
+                        </StackPanel>
+                        <Viewbox Grid.Column="1" Width="17" Height="17" VerticalAlignment="Center" IsHitTestVisible="False" AutomationProperties.Name="">
+                            <Path Data="{DynamicResource StarFilledIconGeometry}" Fill="{DynamicResource RazerGreenBrush}" Stretch="Uniform">
+                                <Path.Style><Style TargetType="Path"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding SelectedItem.IsFavorite}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></Path.Style>
+                            </Path>
+                        </Viewbox>
+                    </Grid>
+                    <Border Grid.Row="0" VerticalAlignment="Bottom" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" />
+                    <Grid Grid.Row="1">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <StackPanel Margin="14,10">
+                            <TextBlock Style="{StaticResource CaptionStyle}" Text="格式" />
+                            <TextBlock x:Name="DetailFormatText" Margin="0,4,0,0" FontFamily="{DynamicResource MonospaceFontFamily}" FontWeight="SemiBold" Text="{Binding SelectedItemFormatText}" />
+                        </StackPanel>
+                        <Border Grid.Column="1" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1,0">
+                            <StackPanel Margin="14,10">
+                                <TextBlock Style="{StaticResource CaptionStyle}" Text="事件" />
+                                <TextBlock x:Name="DetailEventCountText" Margin="0,4,0,0" FontFamily="{DynamicResource MonospaceFontFamily}" FontWeight="SemiBold" Text="{Binding SelectedItemEventCountText}" />
+                            </StackPanel>
+                        </Border>
+                        <StackPanel Grid.Column="2" Margin="14,10">
+                            <TextBlock Style="{StaticResource CaptionStyle}" Text="修改时间" />
+                            <TextBlock x:Name="DetailModifiedText" Margin="0,4,0,0" FontFamily="{DynamicResource MonospaceFontFamily}" FontWeight="SemiBold" Text="{Binding SelectedItemModifiedText}" />
+                        </StackPanel>
+                    </Grid>
+                    <Border Grid.Row="1" VerticalAlignment="Bottom" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" />
+                    <ScrollViewer Grid.Row="2" Padding="14" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource CaptionStyle}" Text="内容预览" />
+                            <TextBox x:Name="LibraryPreviewTextBox" Margin="0,9,0,0" MinHeight="170" MaxHeight="260" Height="Auto"
+                                     VerticalAlignment="Top" AutomationProperties.Name="宏内容只读预览"
+                                     IsReadOnly="True" AcceptsReturn="True" FontFamily="{DynamicResource MonospaceFontFamily}" FontSize="12"
+                                     HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
+                                     Style="{StaticResource ReadOnlyFieldStyle}" Text="{Binding PreviewContentText, Mode=OneWay}" TextWrapping="Wrap" />
+                            <TextBlock Margin="0,8,0,0" AutomationProperties.LiveSetting="Polite" Style="{StaticResource CaptionStyle}"
+                                       Text="{Binding PreviewText}" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </ScrollViewer>
+                    <Border Grid.Row="3" Padding="12" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="7" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="7" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="7" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="7" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <Button Click="OpenSelected_Click" Content="在转换区打开" IsEnabled="{Binding CanUseSelectedItem}" Style="{StaticResource PrimaryButtonStyle}" />
+                            <Button Grid.Column="2" MinWidth="64" Click="CopyItem_Click" Content="复制" IsEnabled="{Binding CanUseSelectedItem}" Style="{StaticResource SecondaryButtonStyle}" />
+                            <Button Grid.Column="4" MinWidth="82" Click="Favorite_Click" Content="{Binding FavoriteActionText}" IsEnabled="{Binding CanUseSelectedItem}" Style="{StaticResource SecondaryButtonStyle}" />
+                            <Button Grid.Column="6" MinWidth="72" Click="MoveSelected_Click" Content="移动到" IsEnabled="{Binding CanUseSelectedItem}" Style="{StaticResource SecondaryButtonStyle}" />
+                            <Button Grid.Column="8" MinWidth="60" Click="MoreItemActions_Click" Content="更多" Style="{StaticResource SecondaryButtonStyle}" />
+                        </Grid>
+                    </Border>
                 </Grid>
             </Grid>
         </Border>
 
-        <Border Grid.Row="0" Grid.Column="4" Style="{StaticResource CardStyle}">
-            <Grid>
-                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                <Grid Height="32" Margin="14,12">
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                    <TextBlock VerticalAlignment="Center" Style="{StaticResource SectionTitleStyle}" Text="雷蛇宏 XML" />
-                    <Button Grid.Column="1" Click="ImportXmlFiles_Click" Content="导入 XML" IsEnabled="{Binding CanModifyLibrary}" Style="{StaticResource PrimaryButtonStyle}" />
-                </Grid>
-                <Grid Grid.Row="1">
-                    <ListBox x:Name="RazerList"
-                             Margin="8,0"
-                             AutomationProperties.Name="雷蛇 XML 宏列表"
-                             ItemsSource="{Binding RazerItems}"
-                             SelectedItem="{Binding SelectedRazerItem, Mode=TwoWay}"
-                             AllowDrop="True"
-                             PreviewMouseLeftButtonDown="LibraryList_PreviewMouseLeftButtonDown"
-                             PreviewMouseMove="LibraryList_PreviewMouseMove"
-                             DragOver="LibraryList_DragOver"
-                             DragLeave="LibraryList_DragLeave"
-                             Drop="LibraryList_Drop"
-                             SelectionChanged="LibraryList_SelectionChanged"
-                             MouseDoubleClick="OpenSelected_Click"
-                             Background="Transparent"
-                             BorderThickness="0"
-                             ItemContainerStyle="{StaticResource LibraryItemStyle}">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <Grid>
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                    <TextBlock VerticalAlignment="Center" FontSize="16" FontWeight="SemiBold" Text="{Binding Name}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}" />
-                                    <Viewbox Grid.Column="1" Width="21" Height="21" Margin="10,0,2,0" VerticalAlignment="Center" IsHitTestVisible="False" AutomationProperties.Name="">
-                                        <Path Data="{DynamicResource StarFilledIconGeometry}" Fill="{DynamicResource RazerGreenBrush}" Stretch="Uniform">
-                                            <Path.Style><Style TargetType="Path"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding IsFavorite}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></Path.Style>
-                                        </Path>
-                                    </Viewbox>
-                                </Grid>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
-                    <StackPanel x:Name="RazerEmptyState" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="220">
-                        <StackPanel.Style>
-                            <Style TargetType="StackPanel">
-                                <Setter Property="Visibility" Value="Collapsed" />
-                                <Style.Triggers><DataTrigger Binding="{Binding HasRazerItems}" Value="False"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
-                            </Style>
-                        </StackPanel.Style>
-                        <TextBlock Style="{StaticResource EmptyStateTitleStyle}" Text="暂无雷蛇宏 XML" />
-                        <TextBlock Margin="0,4,0,10" Style="{StaticResource EmptyStateCaptionStyle}" Text="导入 XML 文件后可直接打开到转换区。" />
-                        <Button MinWidth="84" HorizontalAlignment="Center" Click="ImportXmlFiles_Click" Content="导入 XML" IsEnabled="{Binding CanModifyLibrary}" Style="{StaticResource PrimaryButtonStyle}" />
-                    </StackPanel>
-                </Grid>
-                <TextBlock Grid.Row="2" Margin="14,7,14,0" Style="{StaticResource CaptionStyle}" Text="{Binding RazerPreviewText}"
-                           TextTrimming="CharacterEllipsis" ToolTip="{Binding RazerPreviewText}" />
-                <Grid x:Name="RazerActionPanel" Grid.Row="3" Margin="12,10" Visibility="{Binding HasSelectedRazerItem, Converter={StaticResource BooleanToVisibilityConverter}}">
-                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="6" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                    <Button Tag="razer" Click="OpenSelected_Click" Content="在转换区打开" IsEnabled="{Binding CanUseSelectedRazerItem}" Style="{StaticResource PrimaryButtonStyle}" />
-                    <UniformGrid Grid.Row="2" Columns="3">
-                        <Button Tag="razer" Margin="0,0,3,0" Click="RevealSelected_Click" Content="打开位置" IsEnabled="{Binding CanUseSelectedRazerItem}" Style="{StaticResource SecondaryButtonStyle}" />
-                        <Button Tag="razer" Margin="3,0" Click="Favorite_Click" Content="收藏" IsEnabled="{Binding CanUseSelectedRazerItem}" Style="{StaticResource SecondaryButtonStyle}" />
-                        <Button Tag="razer" Margin="3,0,0,0" Click="MoreItemActions_Click" Content="更多" Style="{StaticResource SecondaryButtonStyle}" />
-                    </UniformGrid>
-                </Grid>
-            </Grid>
-        </Border>
-        <Border x:Name="LibraryStatusBar" Grid.Row="2" Grid.ColumnSpan="5" MinHeight="32" Padding="10,6"
+        <Border x:Name="LibraryStatusBar" Grid.Row="2" Grid.ColumnSpan="5" Height="34" Padding="10,0"
                 Background="{DynamicResource SubtlePanelBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="3">
             <Grid>
-                <TextBlock AutomationProperties.LiveSetting="Polite" Style="{StaticResource CaptionStyle}"
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <TextBlock VerticalAlignment="Center" AutomationProperties.LiveSetting="Polite" Style="{StaticResource CaptionStyle}"
                            Text="{Binding StatusText}" TextTrimming="CharacterEllipsis" ToolTip="{Binding StatusText}" />
-                <ProgressBar Height="3" Margin="0,22,0,0" VerticalAlignment="Top" IsIndeterminate="True"
+                <TextBlock Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource CaptionStyle}" Text="双击宏可直接打开 · Ctrl+F 搜索" />
+                <ProgressBar Grid.ColumnSpan="2" Height="3" VerticalAlignment="Bottom" IsIndeterminate="True"
                              Visibility="{Binding IsBusy, Converter={StaticResource BooleanToVisibilityConverter}}" />
             </Grid>
         </Border>

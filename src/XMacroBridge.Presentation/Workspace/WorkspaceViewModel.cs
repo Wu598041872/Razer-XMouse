@@ -49,6 +49,8 @@ public sealed class WorkspaceViewModel : ObservableObject
     private string eventSearchText = string.Empty;
     private int[] eventSearchMatches = [];
     private int currentEventSearchMatch = -1;
+    private bool isDirty;
+    private bool isAddOperationPanelOpen;
 
     public WorkspaceViewModel(
         MacroImportService importService,
@@ -145,6 +147,10 @@ public sealed class WorkspaceViewModel : ObservableObject
         {
             if (SetProperty(ref selectedMacro, value))
             {
+                if (value is null)
+                {
+                    IsAddOperationPanelOpen = false;
+                }
                 SelectedReferenceTarget = null;
                 OnPropertyChanged(nameof(AvailableReferenceTargets));
                 RebuildEventRows();
@@ -361,6 +367,26 @@ public sealed class WorkspaceViewModel : ObservableObject
     }
 
     public bool CanCancel => IsBusy;
+
+    public bool IsDirty
+    {
+        get => isDirty;
+        private set
+        {
+            if (SetProperty(ref isDirty, value))
+            {
+                OnPropertyChanged(nameof(DirtyStateText));
+            }
+        }
+    }
+
+    public string DirtyStateText => IsDirty ? "未保存" : "已保存";
+
+    public bool IsAddOperationPanelOpen
+    {
+        get => isAddOperationPanelOpen;
+        set => SetProperty(ref isAddOperationPanelOpen, HasSelectedMacro && value);
+    }
 
     public bool CanImport => !IsBusy;
 
@@ -667,6 +693,10 @@ public sealed class WorkspaceViewModel : ObservableObject
             AppendDiagnostics(result.Diagnostics);
             ProgressPercent = result.Succeeded ? 100 : 0;
             StatusText = result.Succeeded ? $"已导出到 {Path.GetFileName(result.OutputPath)}" : "导出失败";
+            if (result.Succeeded)
+            {
+                IsDirty = false;
+            }
             return result;
         }
         catch (OperationCanceledException)
@@ -745,6 +775,7 @@ public sealed class WorkspaceViewModel : ObservableObject
         }
 
         StatusText = $"已重命名为“{normalizedName}”";
+        IsDirty = true;
         NotifyEditingState();
         return true;
     }
@@ -802,6 +833,7 @@ public sealed class WorkspaceViewModel : ObservableObject
 
         RebuildWorkspaceValidationDiagnostics();
         StatusText = $"已从工作区删除“{deletedName}”";
+        IsDirty = true;
         NotifyCollectionSummaries();
         OnPropertyChanged(nameof(CanDeleteMacro));
         return true;
@@ -891,6 +923,7 @@ public sealed class WorkspaceViewModel : ObservableObject
 
         RebuildWorkspaceValidationDiagnostics(WithMacroContext(result.Diagnostics, replacement.Name));
         StatusText = "已应用宏文本修改";
+        IsDirty = true;
         NotifyEditingState();
         return true;
     }
@@ -1625,6 +1658,7 @@ public sealed class WorkspaceViewModel : ObservableObject
         undoHistory.RemoveAt(undoHistory.Count - 1);
         redoHistory.Add(entry);
         StatusText = $"已撤销：{entry.Description}";
+        IsDirty = true;
         NotifyEditingState();
         return true;
     }
@@ -1648,6 +1682,7 @@ public sealed class WorkspaceViewModel : ObservableObject
         redoHistory.RemoveAt(redoHistory.Count - 1);
         undoHistory.Add(entry);
         StatusText = $"已重做：{entry.Description}";
+        IsDirty = true;
         NotifyEditingState();
         return true;
     }
@@ -1846,6 +1881,7 @@ public sealed class WorkspaceViewModel : ObservableObject
         }
 
         StatusText = $"已完成：{description}";
+        IsDirty = true;
         NotifyEditingState();
         return true;
     }

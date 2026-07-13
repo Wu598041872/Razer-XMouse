@@ -2,10 +2,12 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Microsoft.Win32;
@@ -18,6 +20,8 @@ namespace XMacroBridge.App;
 
 public partial class MainWindow : Window
 {
+    private const int WmGetMinMaxInfo = 0x0024;
+    private const uint MonitorDefaultToNearest = 0x00000002;
     private const string TimelineDragFormat = "XMacroBridge.TimelineEventIndices";
     private const string TimelineInsertBeforeTag = "TimelineInsertBefore";
     private const string TimelineInsertAfterTag = "TimelineInsertAfter";
@@ -30,6 +34,8 @@ public partial class MainWindow : Window
     private DataGridRow? timelineDropIndicatorRow;
     private bool restoringTimelineSelection;
     private bool resizingWorkspaceContent;
+    private bool forceClosing;
+    private bool closePromptActive;
 
     public MainWindow()
     {
@@ -49,7 +55,29 @@ public partial class MainWindow : Window
         ?? Assembly.GetExecutingAssembly().GetName().Version?.ToString(3)
         ?? "1.0.0";
 
-    private async void Window_Loaded(object sender, RoutedEventArgs e) => await libraryViewModel.InitializeAsync();
+    protected override void OnSourceInitialized(EventArgs e)
+    {
+        base.OnSourceInitialized(e);
+        if (PresentationSource.FromVisual(this) is HwndSource source)
+        {
+            source.AddHook(WindowMessageHook);
+        }
+    }
+
+    private async void Window_Loaded(object sender, RoutedEventArgs e)
+    {
+        await libraryViewModel.InitializeAsync();
+        viewModel.TargetFormatId = libraryViewModel.DefaultTargetFormat;
+        if (libraryViewModel.RestorePreviousWorkspace)
+        {
+            var restorablePaths = libraryViewModel.LastWorkspacePaths.Where(File.Exists).ToArray();
+            if (restorablePaths.Length > 0)
+            {
+                await viewModel.ImportAsync(restorablePaths);
+            }
+        }
+        ApplyTimelineDensity();
+    }
 
     private void Window_StateChanged(object? sender, EventArgs e)
     {
@@ -57,6 +85,40 @@ public partial class MainWindow : Window
         WindowMaximizeRestoreIcon.Data = (Geometry)FindResource(
             isMaximized ? "RestoreWindowGeometry" : "MaximizeWindowGeometry");
         WindowMaximizeRestoreButton.ToolTip = isMaximized ? "还原" : "最大化";
+    }
+
+    private static nint WindowMessageHook(nint hwnd, int message, nint wParam, nint lParam, ref bool handled)
+    {
+        if (message != WmGetMinMaxInfo)
+        {
+            return nint.Zero;
+        }
+
+        ApplyMonitorWorkArea(hwnd, lParam);
+        handled = true;
+        return nint.Zero;
+    }
+
+    private static void ApplyMonitorWorkArea(nint hwnd, nint lParam)
+    {
+        var monitor = MonitorFromWindow(hwnd, MonitorDefaultToNearest);
+        if (monitor == nint.Zero)
+        {
+            return;
+        }
+
+        var monitorInfo = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
+        if (!GetMonitorInfo(monitor, ref monitorInfo))
+        {
+            return;
+        }
+
+        var minMaxInfo = Marshal.PtrToStructure<MinMaxInfo>(lParam);
+        minMaxInfo.MaxPosition.X = Math.Abs(monitorInfo.WorkArea.Left - monitorInfo.MonitorArea.Left);
+        minMaxInfo.MaxPosition.Y = Math.Abs(monitorInfo.WorkArea.Top - monitorInfo.MonitorArea.Top);
+        minMaxInfo.MaxSize.X = Math.Abs(monitorInfo.WorkArea.Right - monitorInfo.WorkArea.Left);
+        minMaxInfo.MaxSize.Y = Math.Abs(monitorInfo.WorkArea.Bottom - monitorInfo.WorkArea.Top);
+        Marshal.StructureToPtr(minMaxInfo, lParam, false);
     }
 
     private void WindowMinimize_Click(object sender, RoutedEventArgs e) =>
@@ -86,6 +148,40 @@ public partial class MainWindow : Window
         LibraryNavigationButton.Tag = page == AppPage.Library ? "Active" : null;
         SettingsNavigationButton.Tag = page == AppPage.Settings ? "Active" : null;
     }
+
+    private void SettingsCategoryList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (LibrarySettingsPanel is null)
+        {
+            return;
+        }
+
+        var panels = new FrameworkElement[]
+        {
+            LibrarySettingsPanel,
+            ConversionSettingsPanel,
+            WorkspaceSettingsPanel,
+            AboutSettingsPanel,
+        };
+        var selectedIndex = Math.Clamp(SettingsCategoryList.SelectedIndex, 0, panels.Length - 1);
+        for (var index = 0; index < panels.Length; index++)
+        {
+            panels[index].Visibility = index == selectedIndex ? Visibility.Visible : Visibility.Collapsed;
+        }
+    }
+
+    private void TimelineDensity_SelectionChanged(object sender, SelectionChangedEventArgs e) => ApplyTimelineDensity();
+
+    private async void RestoreWorkspaceSetting_Changed(object sender, RoutedEventArgs e)
+    {
+        if (libraryViewModel is not null)
+        {
+            await PersistWorkspacePathsAsync();
+        }
+    }
+
+    private void ApplyTimelineDensity() => EventTimeline.RowHeight =
+        string.Equals(libraryViewModel.TimelineDensity, "comfortable", StringComparison.Ordinal) ? 52 : 44;
 
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
     {
@@ -199,6 +295,18 @@ public partial class MainWindow : Window
         {
             AppMessageDialog.Show(this, "无法打开许可说明", "请从程序目录手动打开 THIRD-PARTY-NOTICES.md。", AppMessageKind.Warning);
         }
+    }
+
+    private void OpenSettingsLocation_Click(object sender, RoutedEventArgs e)
+    {
+        var settingsDirectory = Path.GetDirectoryName(libraryViewModel.SettingsPath);
+        if (string.IsNullOrWhiteSpace(settingsDirectory))
+        {
+            return;
+        }
+
+        Directory.CreateDirectory(settingsDirectory);
+        Process.Start(new ProcessStartInfo("explorer.exe", $"\"{settingsDirectory}\"") { UseShellExecute = true });
     }
 
     private void WorkspaceScrollViewer_Loaded(object sender, RoutedEventArgs e)
@@ -316,7 +424,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        viewModel.DeleteMacro(macro);
+        if (viewModel.DeleteMacro(macro))
+        {
+            _ = PersistWorkspacePathsAsync();
+        }
     }
 
     private void MacroList_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
@@ -361,11 +472,13 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void Export_Click(object sender, RoutedEventArgs e)
+    private async void Export_Click(object sender, RoutedEventArgs e) => await TryExportSelectedMacroAsync();
+
+    private async Task<bool> TryExportSelectedMacroAsync()
     {
         if (viewModel.SelectedMacro is null)
         {
-            return;
+            return false;
         }
 
         if (TargetFormatSelector.SelectedItem is ExportFormatOption selectedFormat)
@@ -380,22 +493,44 @@ public partial class MainWindow : Window
             AddExtension = true,
             DefaultExt = format.Extension,
             Filter = $"{format.DisplayName}|*{format.Extension}",
-            FileName = CreateSafeSuggestedName(viewModel.SelectedMacro.Name, format.Extension),
+            FileName = CreateSafeSuggestedName(
+                libraryViewModel.PreserveMacroName ? viewModel.SelectedMacro.Name : "转换后的宏",
+                format.Extension),
             OverwritePrompt = true,
         };
 
         if (dialog.ShowDialog(this) != true)
         {
-            return;
+            return false;
         }
 
-        var overwrite = File.Exists(dialog.FileName);
-        var result = await viewModel.ExportAsync(dialog.FileName, overwrite);
+        var targetPath = dialog.FileName;
+        if (File.Exists(targetPath) && string.Equals(libraryViewModel.SameNameHandling, "rename", StringComparison.Ordinal))
+        {
+            targetPath = CreateUniquePath(targetPath);
+        }
+
+        var overwrite = File.Exists(targetPath);
+        var result = await viewModel.ExportAsync(targetPath, overwrite);
         if (!result.Succeeded)
         {
             var message = result.Diagnostics.LastOrDefault()?.Message ?? "导出未完成，请查看兼容性与安全报告。";
             AppMessageDialog.Show(this, "导出未完成", message, AppMessageKind.Warning);
+            return false;
         }
+
+        if (libraryViewModel.OpenOutputFolderAfterExport && result.OutputPath is not null)
+        {
+            Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{result.OutputPath}\"") { UseShellExecute = true });
+        }
+
+        return true;
+    }
+
+    private void ToggleAddOperation_Click(object sender, RoutedEventArgs e)
+    {
+        viewModel.IsAddOperationPanelOpen = !viewModel.IsAddOperationPanelOpen;
+        AddOperationButton.Content = viewModel.IsAddOperationPanelOpen ? "收起添加" : "添加操作";
     }
 
     private void Cancel_Click(object sender, RoutedEventArgs e) => viewModel.Cancel();
@@ -506,6 +641,7 @@ public partial class MainWindow : Window
 
             openedLibraryItem = item;
             await libraryViewModel.MarkRecentAsync(item);
+            await PersistWorkspacePathsAsync();
             ShowPage(AppPage.Workspace);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or NotSupportedException)
@@ -924,10 +1060,49 @@ public partial class MainWindow : Window
         await ImportPathsAsync(paths);
     }
 
-    private void Window_Closing(object? sender, CancelEventArgs e)
+    private async void Window_Closing(object? sender, CancelEventArgs e)
     {
-        viewModel.Cancel();
-        libraryViewModel.Dispose();
+        if (forceClosing || !viewModel.IsDirty || !libraryViewModel.CheckUnsavedBeforeClose)
+        {
+            viewModel.Cancel();
+            libraryViewModel.Dispose();
+            return;
+        }
+
+        e.Cancel = true;
+        if (closePromptActive)
+        {
+            return;
+        }
+
+        closePromptActive = true;
+        try
+        {
+            var choice = AppMessageDialog.ShowQuestion(
+                this,
+                "存在未保存修改",
+                "当前工作区包含尚未导出的修改。关闭前可以安全导出，也可以放弃本次修改。",
+                "安全导出",
+                "放弃修改",
+                "取消",
+                AppMessageKind.Warning);
+            if (choice == AppDialogResult.Cancel)
+            {
+                return;
+            }
+
+            if (choice == AppDialogResult.Primary && !await TryExportSelectedMacroAsync())
+            {
+                return;
+            }
+
+            forceClosing = true;
+            Close();
+        }
+        finally
+        {
+            closePromptActive = false;
+        }
     }
 
     internal async void ImportStartupPaths(IEnumerable<string> paths) => await ImportPathsAsync(paths);
@@ -937,11 +1112,23 @@ public partial class MainWindow : Window
         try
         {
             await viewModel.ImportAsync(paths);
+            await PersistWorkspacePathsAsync();
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
             AppMessageDialog.Show(this, "无法导入所选路径", exception.Message, AppMessageKind.Warning);
         }
+    }
+
+    private Task PersistWorkspacePathsAsync()
+    {
+        if (!libraryViewModel.RestorePreviousWorkspace)
+        {
+            return Task.CompletedTask;
+        }
+
+        return libraryViewModel.SaveWorkspacePathsAsync(
+            viewModel.Macros.Select(macro => macro.SourcePath).OfType<string>().Where(File.Exists));
     }
 
     private async Task ImportTextAsync(string text)
@@ -968,6 +1155,23 @@ public partial class MainWindow : Window
         return safeName.EndsWith(extension, StringComparison.OrdinalIgnoreCase)
             ? safeName
             : safeName + extension;
+    }
+
+    private static string CreateUniquePath(string path)
+    {
+        var directory = Path.GetDirectoryName(path) ?? string.Empty;
+        var name = Path.GetFileNameWithoutExtension(path);
+        var extension = Path.GetExtension(path);
+        for (var index = 2; index < 10000; index++)
+        {
+            var candidate = Path.Combine(directory, $"{name} ({index}){extension}");
+            if (!File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return Path.Combine(directory, $"{name} ({Guid.NewGuid():N}){extension}");
     }
 
     private int[] GetSelectedEventIndices()
@@ -1139,6 +1343,48 @@ public partial class MainWindow : Window
         Workspace,
         Library,
         Settings,
+    }
+
+    [DllImport("user32.dll")]
+    private static extern nint MonitorFromWindow(nint windowHandle, uint flags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetMonitorInfo(nint monitorHandle, ref MonitorInfo monitorInfo);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativePoint
+    {
+        public int X;
+        public int Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MinMaxInfo
+    {
+        public NativePoint Reserved;
+        public NativePoint MaxSize;
+        public NativePoint MaxPosition;
+        public NativePoint MinTrackSize;
+        public NativePoint MaxTrackSize;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeRect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+    private struct MonitorInfo
+    {
+        public int Size;
+        public NativeRect MonitorArea;
+        public NativeRect WorkArea;
+        public uint Flags;
     }
 
 }

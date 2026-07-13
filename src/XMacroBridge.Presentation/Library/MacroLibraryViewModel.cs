@@ -26,13 +26,24 @@ public sealed class MacroLibraryViewModel : ObservableObject, IDisposable
     private string selectedScope = AllScope;
     private string searchText = string.Empty;
     private bool sortByModified;
+    private string selectedFormat = "all";
+    private string selectedSort = "manual";
     private bool isBusy;
     private string statusText = "宏库尚未载入";
     private string warningsText = string.Empty;
     private MacroLibraryItem? selectedXMouseItem;
     private MacroLibraryItem? selectedRazerItem;
+    private MacroLibraryItem? selectedItem;
     private string xMousePreviewText = "选择条目以查看解析状态";
     private string razerPreviewText = "选择条目以查看解析状态";
+    private string previewText = "选择宏以查看解析状态";
+    private string previewContentText = "";
+    private CancellationTokenSource? previewCancellation;
+    private int previewGeneration;
+    private CancellationTokenSource? settingsSaveCancellation;
+    private MacroLibraryAppSettings appSettings = new(MacroLibrarySettingsService.DefaultLibraryRootPath);
+    private string settingsSaveStatus = "所有设置已保存";
+    private bool applyingSettings;
     private bool disposed;
 
     public MacroLibraryViewModel(
@@ -44,11 +55,58 @@ public sealed class MacroLibraryViewModel : ObservableObject, IDisposable
         importService = new MacroImportService(MacroFormatRegistry.CreateDefault());
         synchronizationContext = SynchronizationContext.Current;
         refreshTimer = new Timer(_ => PostRefresh(), null, Timeout.Infinite, Timeout.Infinite);
+        FormatOptions =
+        [
+            new MacroLibraryFormatOption("all", "全部"),
+            new MacroLibraryFormatOption("xmouse", "XMouse"),
+            new MacroLibraryFormatOption("razer", "雷云 4"),
+        ];
+        SortOptions =
+        [
+            new MacroLibrarySortOption("manual", "手动排序"),
+            new MacroLibrarySortOption("name", "按名称"),
+            new MacroLibrarySortOption("modified", "按修改时间"),
+        ];
+        TargetFormatOptions =
+        [
+            new SettingsOption("razer.macro.xml", "雷云 4 宏 XML"),
+            new SettingsOption("xmbc.macro.text", "XMouse 宏文本"),
+        ];
+        SameNameOptions =
+        [
+            new SettingsOption("ask", "询问我"),
+            new SettingsOption("rename", "自动生成新名称"),
+            new SettingsOption("overwrite", "确认后覆盖"),
+        ];
+        TimelineDensityOptions =
+        [
+            new SettingsOption("compact", "紧凑（44 px）"),
+            new SettingsOption("comfortable", "舒适（52 px）"),
+        ];
+        FeedbackDurationOptions =
+        [
+            new SettingsOption("2000", "2 秒"),
+            new SettingsOption("3000", "3 秒"),
+            new SettingsOption("5000", "5 秒"),
+        ];
     }
 
     public ObservableCollection<MacroLibraryGroupOption> GroupOptions { get; } = [];
     public ObservableCollection<MacroLibraryItem> XMouseItems { get; } = [];
     public ObservableCollection<MacroLibraryItem> RazerItems { get; } = [];
+    public ObservableCollection<MacroLibraryItem> VisibleItems { get; } = [];
+
+    public IReadOnlyList<MacroLibraryFormatOption> FormatOptions { get; }
+
+    public IReadOnlyList<MacroLibrarySortOption> SortOptions { get; }
+
+    public IReadOnlyList<SettingsOption> TargetFormatOptions { get; }
+
+    public IReadOnlyList<SettingsOption> SameNameOptions { get; }
+
+    public IReadOnlyList<SettingsOption> TimelineDensityOptions { get; }
+
+    public IReadOnlyList<SettingsOption> FeedbackDurationOptions { get; }
 
     public string RootPath
     {
@@ -72,6 +130,7 @@ public sealed class MacroLibraryViewModel : ObservableObject, IDisposable
             if (SetProperty(ref selectedScope, value))
             {
                 RebuildVisibleItems();
+                OnPropertyChanged(nameof(SelectedScopeDisplayName));
                 NotifyActionState();
             }
         }
@@ -97,6 +156,37 @@ public sealed class MacroLibraryViewModel : ObservableObject, IDisposable
         {
             if (SetProperty(ref sortByModified, value))
             {
+                selectedSort = value ? "modified" : "manual";
+                OnPropertyChanged(nameof(SelectedSort));
+                RebuildVisibleItems();
+                NotifyActionState();
+            }
+        }
+    }
+
+    public string SelectedFormat
+    {
+        get => selectedFormat;
+        set
+        {
+            if (SetProperty(ref selectedFormat, value ?? "all"))
+            {
+                RebuildVisibleItems();
+                NotifyActionState();
+            }
+        }
+    }
+
+    public string SelectedSort
+    {
+        get => selectedSort;
+        set
+        {
+            var normalized = value is "name" or "modified" ? value : "manual";
+            if (SetProperty(ref selectedSort, normalized))
+            {
+                sortByModified = normalized == "modified";
+                OnPropertyChanged(nameof(SortByModified));
                 RebuildVisibleItems();
                 NotifyActionState();
             }
@@ -127,6 +217,103 @@ public sealed class MacroLibraryViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref warningsText, value);
     }
 
+    public string SettingsPath => settingsService.SettingsPath;
+
+    public IReadOnlyList<string> LastWorkspacePaths => appSettings.LastWorkspacePaths ?? [];
+
+    public string SettingsSaveStatus
+    {
+        get => settingsSaveStatus;
+        private set => SetProperty(ref settingsSaveStatus, value);
+    }
+
+    public string DefaultTargetFormat
+    {
+        get => appSettings.DefaultTargetFormat;
+        set => UpdateSettings(appSettings with { DefaultTargetFormat = value ?? "razer.macro.xml" }, nameof(DefaultTargetFormat));
+    }
+
+    public bool RunSafetyCheckBeforeExport
+    {
+        get => appSettings.RunSafetyCheckBeforeExport;
+        set => UpdateSettings(appSettings with { RunSafetyCheckBeforeExport = value }, nameof(RunSafetyCheckBeforeExport));
+    }
+
+    public bool OpenOutputFolderAfterExport
+    {
+        get => appSettings.OpenOutputFolderAfterExport;
+        set => UpdateSettings(appSettings with { OpenOutputFolderAfterExport = value }, nameof(OpenOutputFolderAfterExport));
+    }
+
+    public string SameNameHandling
+    {
+        get => appSettings.SameNameHandling;
+        set => UpdateSettings(appSettings with { SameNameHandling = value ?? "ask" }, nameof(SameNameHandling));
+    }
+
+    public bool PreserveMacroName
+    {
+        get => appSettings.PreserveMacroName;
+        set => UpdateSettings(appSettings with { PreserveMacroName = value }, nameof(PreserveMacroName));
+    }
+
+    public bool RestorePreviousWorkspace
+    {
+        get => appSettings.RestorePreviousWorkspace;
+        set => UpdateSettings(appSettings with { RestorePreviousWorkspace = value }, nameof(RestorePreviousWorkspace));
+    }
+
+    public bool CheckUnsavedBeforeClose
+    {
+        get => appSettings.CheckUnsavedBeforeClose;
+        set => UpdateSettings(appSettings with { CheckUnsavedBeforeClose = value }, nameof(CheckUnsavedBeforeClose));
+    }
+
+    public string TimelineDensity
+    {
+        get => appSettings.TimelineDensity;
+        set => UpdateSettings(appSettings with { TimelineDensity = value ?? "compact" }, nameof(TimelineDensity));
+    }
+
+    public string FeedbackDurationKey
+    {
+        get => appSettings.FeedbackDurationMilliseconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        set
+        {
+            var duration = int.TryParse(value, out var parsed) ? Math.Clamp(parsed, 1000, 10000) : 3000;
+            UpdateSettings(appSettings with { FeedbackDurationMilliseconds = duration }, nameof(FeedbackDurationKey));
+        }
+    }
+
+    public bool DeleteToTrash
+    {
+        get => appSettings.DeleteToTrash;
+        set => UpdateSettings(appSettings with { DeleteToTrash = value }, nameof(DeleteToTrash));
+    }
+
+    public bool AutoLoadPreview
+    {
+        get => appSettings.AutoLoadPreview;
+        set => UpdateSettings(appSettings with { AutoLoadPreview = value }, nameof(AutoLoadPreview));
+    }
+
+    public async Task SaveWorkspacePathsAsync(IEnumerable<string> paths, CancellationToken cancellationToken = default)
+    {
+        var normalized = paths
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(Path.GetFullPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        appSettings = appSettings with { LibraryRootPath = RootPath, LastWorkspacePaths = normalized };
+        settingsSaveCancellation?.Cancel();
+        settingsSaveCancellation?.Dispose();
+        settingsSaveCancellation = null;
+        SettingsSaveStatus = "正在保存…";
+        await settingsService.SaveAsync(appSettings, cancellationToken).ConfigureAwait(true);
+        SettingsSaveStatus = "所有设置已保存";
+        OnPropertyChanged(nameof(LastWorkspacePaths));
+    }
+
     public MacroLibraryItem? SelectedXMouseItem
     {
         get => selectedXMouseItem;
@@ -151,9 +338,67 @@ public sealed class MacroLibraryViewModel : ObservableObject, IDisposable
         }
     }
 
+    public MacroLibraryItem? SelectedItem
+    {
+        get => selectedItem;
+        set
+        {
+            if (ReferenceEquals(selectedItem, value))
+            {
+                return;
+            }
+
+            selectedItem = value;
+            OnPropertyChanged();
+            selectedXMouseItem = value?.Kind == MacroLibraryItemKind.XMouseText ? value : null;
+            selectedRazerItem = value?.Kind == MacroLibraryItemKind.RazerXml ? value : null;
+            OnPropertyChanged(nameof(SelectedXMouseItem));
+            OnPropertyChanged(nameof(SelectedRazerItem));
+            if (value is null)
+            {
+                CancelPreview();
+                PreviewText = "当前筛选没有可预览的宏";
+                PreviewContentText = string.Empty;
+            }
+            else if (!IsBusy)
+            {
+                StatusText = $"已选择“{value.Name}” · {value.FormatDisplayName}";
+            }
+
+            NotifyActionState();
+        }
+    }
+
     public bool HasXMouseItems => XMouseItems.Count > 0;
 
     public bool HasRazerItems => RazerItems.Count > 0;
+
+    public bool HasVisibleItems => VisibleItems.Count > 0;
+
+    public bool HasSelectedItem => SelectedItem is not null;
+
+    public bool CanUseSelectedItem => !IsBusy && SelectedItem is { IsTrashed: false };
+
+    public bool CanEditSelectedText => CanUseSelectedItem && SelectedItem?.Kind == MacroLibraryItemKind.XMouseText;
+
+    public string SelectedItemFormatText => SelectedItem?.FormatDisplayName ?? string.Empty;
+
+    public string SelectedItemPathText => SelectedItem?.DisplayPath ?? string.Empty;
+
+    public string SelectedItemEventCountText => SelectedItem?.EventCount?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "—";
+
+    public string SelectedItemModifiedText => SelectedItem?.ModifiedDisplayText ?? string.Empty;
+
+    public string SelectedScopeDisplayName => GroupOptions
+        .FirstOrDefault(option => string.Equals(option.Key, SelectedScope, StringComparison.Ordinal))?.DisplayName ?? "全部宏";
+
+    public string VisibleItemCountText => $"{VisibleItems.Count} 个条目";
+
+    public string SelectedItemMetadataText => SelectedItem is null
+        ? string.Empty
+        : $"{(string.IsNullOrWhiteSpace(SelectedItem.GroupName) ? "未分组" : SelectedItem.GroupName)} · {SelectedItem.LastWriteTime.LocalDateTime:yyyy-MM-dd HH:mm} · {SelectedItem.Length:N0} B";
+
+    public string FavoriteActionText => SelectedItem?.IsFavorite == true ? "取消收藏" : "收藏";
 
     public bool HasSelectedXMouseItem => SelectedXMouseItem is not null;
 
@@ -173,7 +418,7 @@ public sealed class MacroLibraryViewModel : ObservableObject, IDisposable
     public bool CanModifyLibrary => !IsBusy;
 
     public bool CanReorderLibraryItems =>
-        !IsBusy && !SortByModified && SelectedScope != TrashScope && string.IsNullOrWhiteSpace(SearchText);
+        !IsBusy && SelectedSort == "manual" && SelectedScope != TrashScope && string.IsNullOrWhiteSpace(SearchText);
 
     public string XMousePreviewText
     {
@@ -187,9 +432,22 @@ public sealed class MacroLibraryViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref razerPreviewText, value);
     }
 
+    public string PreviewText
+    {
+        get => previewText;
+        private set => SetProperty(ref previewText, value);
+    }
+
+    public string PreviewContentText
+    {
+        get => previewContentText;
+        private set => SetProperty(ref previewContentText, value);
+    }
+
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         var (settings, warning) = await settingsService.LoadAsync(cancellationToken).ConfigureAwait(true);
+        ApplySettings(settings);
         RootPath = settings.LibraryRootPath;
         await RefreshAsync(cancellationToken).ConfigureAwait(true);
         if (!string.IsNullOrWhiteSpace(warning))
@@ -202,7 +460,10 @@ public sealed class MacroLibraryViewModel : ObservableObject, IDisposable
     public async Task SetRootAsync(string path, CancellationToken cancellationToken = default)
     {
         RootPath = Path.GetFullPath(path);
-        await settingsService.SaveAsync(new MacroLibraryAppSettings(RootPath), cancellationToken).ConfigureAwait(true);
+        appSettings = appSettings with { LibraryRootPath = RootPath };
+        SettingsSaveStatus = "正在保存…";
+        await settingsService.SaveAsync(appSettings, cancellationToken).ConfigureAwait(true);
+        SettingsSaveStatus = "所有设置已保存";
         SelectedScope = AllScope;
         await RefreshAsync(cancellationToken).ConfigureAwait(true);
         ConfigureWatcher();
@@ -226,7 +487,7 @@ public sealed class MacroLibraryViewModel : ObservableObject, IDisposable
         try
         {
             var snapshot = await service.ScanAsync(RootPath, cancellationToken).ConfigureAwait(true);
-            activeItems = snapshot.Items;
+            activeItems = await EnrichItemsAsync(snapshot.Items, cancellationToken).ConfigureAwait(true);
             trashItems = snapshot.TrashItems;
             RebuildGroupOptions(snapshot.Groups);
             RebuildVisibleItems();
@@ -287,6 +548,12 @@ public sealed class MacroLibraryViewModel : ObservableObject, IDisposable
     public Task<MacroLibraryOperationResult> MoveToTrashAsync(MacroLibraryItem item, CancellationToken cancellationToken = default) =>
         RunOperationAsync(() => service.MoveToTrashAsync(RootPath, item.RelativePath, cancellationToken), "宏已移入回收站", true, cancellationToken);
 
+    public Task<MacroLibraryOperationResult> CopyItemAsync(MacroLibraryItem item, CancellationToken cancellationToken = default) =>
+        RunOperationAsync(() => service.CopyItemAsync(RootPath, item.RelativePath, cancellationToken), $"已复制“{item.Name}”", true, cancellationToken);
+
+    public Task<MacroLibraryOperationResult> DeleteItemPermanentlyAsync(MacroLibraryItem item, CancellationToken cancellationToken = default) =>
+        RunOperationAsync(() => service.DeleteItemPermanentlyAsync(RootPath, item.RelativePath, cancellationToken), "宏已永久删除", true, cancellationToken);
+
     public Task<MacroLibraryOperationResult> RestoreAsync(MacroLibraryItem item, CancellationToken cancellationToken = default) =>
         RunOperationAsync(() => service.RestoreAsync(RootPath, item.RelativePath, cancellationToken), "宏已恢复", true, cancellationToken);
 
@@ -324,10 +591,9 @@ public sealed class MacroLibraryViewModel : ObservableObject, IDisposable
             return new MacroLibraryOperationResult(false, Message: "搜索、回收站或按时间排序状态下不能调整顺序。");
         }
 
-        if (movedItem.Kind != targetItem.Kind ||
-            string.Equals(movedItem.RelativePath, targetItem.RelativePath, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(movedItem.RelativePath, targetItem.RelativePath, StringComparison.OrdinalIgnoreCase))
         {
-            return new MacroLibraryOperationResult(false, Message: "只能在同一宏列表中调整不同条目的顺序。");
+            return new MacroLibraryOperationResult(false, Message: "请选择不同的目标条目。");
         }
 
         var ordered = activeItems
@@ -356,14 +622,8 @@ public sealed class MacroLibraryViewModel : ObservableObject, IDisposable
 
         if (result.Succeeded)
         {
-            if (moved.Kind == MacroLibraryItemKind.XMouseText)
-            {
-                SelectedXMouseItem = XMouseItems.FirstOrDefault(item => string.Equals(item.RelativePath, moved.RelativePath, StringComparison.OrdinalIgnoreCase));
-            }
-            else
-            {
-                SelectedRazerItem = RazerItems.FirstOrDefault(item => string.Equals(item.RelativePath, moved.RelativePath, StringComparison.OrdinalIgnoreCase));
-            }
+            SelectedItem = VisibleItems.FirstOrDefault(item =>
+                string.Equals(item.RelativePath, moved.RelativePath, StringComparison.OrdinalIgnoreCase));
         }
 
         return result;
@@ -372,27 +632,70 @@ public sealed class MacroLibraryViewModel : ObservableObject, IDisposable
     public Task<string> ReadTextAsync(MacroLibraryItem item, CancellationToken cancellationToken = default) =>
         service.ReadTextAsync(RootPath, item.RelativePath, cancellationToken);
 
+    public void ClearPreview()
+    {
+        CancelPreview();
+        PreviewText = "自动预览已关闭；可手动加载当前宏。";
+        PreviewContentText = string.Empty;
+    }
+
+    public async Task LoadRawPreviewAsync(MacroLibraryItem item, CancellationToken cancellationToken = default)
+    {
+        CancelPreview();
+        if (item.IsTrashed)
+        {
+            PreviewText = $"回收站条目 · 原位置 {item.OriginalRelativePath}";
+            PreviewContentText = string.Empty;
+            return;
+        }
+
+        PreviewText = item.ParseSummary ?? item.EventCountText;
+        PreviewContentText = await service.ReadContentAsync(RootPath, item.RelativePath, cancellationToken).ConfigureAwait(true);
+    }
+
     public string GetFullPath(MacroLibraryItem item) => service.GetFullPath(RootPath, item.RelativePath);
 
     public async Task LoadPreviewAsync(MacroLibraryItem item, CancellationToken cancellationToken = default)
     {
+        CancelPreview();
+        var generation = ++previewGeneration;
+        using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        previewCancellation = linkedCancellation;
         var loadingText = "正在解析...";
         SetPreview(item.Kind, loadingText);
+        PreviewText = loadingText;
+        PreviewContentText = string.Empty;
         if (item.IsTrashed)
         {
-            SetPreview(item.Kind, $"回收站条目 · 原位置 {item.OriginalRelativePath}");
+            var trashText = $"回收站条目 · 原位置 {item.OriginalRelativePath}";
+            SetPreview(item.Kind, trashText);
+            PreviewText = trashText;
+            previewCancellation = null;
             return;
         }
 
         try
         {
+            PreviewContentText = await service.ReadContentAsync(RootPath, item.RelativePath, linkedCancellation.Token).ConfigureAwait(true);
+            if (!IsCurrentPreview(item, generation))
+            {
+                return;
+            }
+
             var result = await importService.ImportAsync(
                 [GetFullPath(item)],
                 new MacroImportOptions(MaximumFiles: 1),
-                cancellationToken: cancellationToken).ConfigureAwait(true);
+                cancellationToken: linkedCancellation.Token).ConfigureAwait(true);
+            if (!IsCurrentPreview(item, generation))
+            {
+                return;
+            }
+
             if (result.Documents.Count == 0)
             {
-                SetPreview(item.Kind, $"无法解析 · {result.Diagnostics.LastOrDefault()?.Message ?? "未知格式"}");
+                var failureText = $"无法解析 · {result.Diagnostics.LastOrDefault()?.Message ?? "未知格式"}";
+                SetPreview(item.Kind, failureText);
+                PreviewText = failureText;
                 return;
             }
 
@@ -400,11 +703,28 @@ public sealed class MacroLibraryViewModel : ObservableObject, IDisposable
             var errorCount = result.Diagnostics.Count(diagnostic => diagnostic.Severity == Core.Diagnostics.DiagnosticSeverity.Error);
             var warningCount = result.Diagnostics.Count(diagnostic => diagnostic.Severity == Core.Diagnostics.DiagnosticSeverity.Warning);
             var state = errorCount > 0 ? $"{errorCount} 个错误" : warningCount > 0 ? $"{warningCount} 个警告" : "格式正常";
-            SetPreview(item.Kind, $"{document.Name} · {document.Events.Count} 个事件 · {state}");
+            var summary = $"{document.Name} · {document.Events.Count} 个事件 · {state}";
+            SetPreview(item.Kind, summary);
+            PreviewText = summary;
+        }
+        catch (OperationCanceledException)
+        {
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or NotSupportedException)
         {
-            SetPreview(item.Kind, $"无法解析 · {exception.Message}");
+            if (IsCurrentPreview(item, generation))
+            {
+                var failureText = $"无法解析 · {exception.Message}";
+                SetPreview(item.Kind, failureText);
+                PreviewText = failureText;
+            }
+        }
+        finally
+        {
+            if (ReferenceEquals(previewCancellation, linkedCancellation))
+            {
+                previewCancellation = null;
+            }
         }
     }
 
@@ -424,6 +744,86 @@ public sealed class MacroLibraryViewModel : ObservableObject, IDisposable
         .ToArray();
 
     public bool GroupContainsOtherEntries(string groupName) => service.GroupContainsOtherEntries(RootPath, groupName);
+
+    private void ApplySettings(MacroLibraryAppSettings settings)
+    {
+        applyingSettings = true;
+        appSettings = settings with
+        {
+            LibraryRootPath = Path.GetFullPath(settings.LibraryRootPath),
+            DefaultTargetFormat = settings.DefaultTargetFormat is "xmbc.macro.text" ? settings.DefaultTargetFormat : "razer.macro.xml",
+            SameNameHandling = settings.SameNameHandling is "rename" or "overwrite" ? settings.SameNameHandling : "ask",
+            TimelineDensity = settings.TimelineDensity == "comfortable" ? "comfortable" : "compact",
+            FeedbackDurationMilliseconds = Math.Clamp(settings.FeedbackDurationMilliseconds, 1000, 10000),
+        };
+        applyingSettings = false;
+        foreach (var propertyName in new[]
+                 {
+                     nameof(DefaultTargetFormat), nameof(RunSafetyCheckBeforeExport), nameof(OpenOutputFolderAfterExport),
+                     nameof(SameNameHandling), nameof(PreserveMacroName), nameof(RestorePreviousWorkspace),
+                     nameof(CheckUnsavedBeforeClose), nameof(TimelineDensity), nameof(FeedbackDurationKey),
+                     nameof(DeleteToTrash), nameof(AutoLoadPreview), nameof(SettingsPath), nameof(LastWorkspacePaths),
+                 })
+        {
+            OnPropertyChanged(propertyName);
+        }
+    }
+
+    private void UpdateSettings(MacroLibraryAppSettings next, string propertyName)
+    {
+        if (appSettings == next)
+        {
+            return;
+        }
+
+        appSettings = next with { LibraryRootPath = RootPath };
+        OnPropertyChanged(propertyName);
+        if (!applyingSettings)
+        {
+            ScheduleSettingsSave();
+        }
+    }
+
+    private void ScheduleSettingsSave()
+    {
+        settingsSaveCancellation?.Cancel();
+        settingsSaveCancellation?.Dispose();
+        settingsSaveCancellation = new CancellationTokenSource();
+        _ = SaveSettingsAfterDelayAsync(settingsSaveCancellation);
+    }
+
+    private async Task SaveSettingsAfterDelayAsync(CancellationTokenSource owner)
+    {
+        SettingsSaveStatus = "正在保存…";
+        try
+        {
+            await Task.Delay(300, owner.Token).ConfigureAwait(true);
+            await settingsService.SaveAsync(appSettings, owner.Token).ConfigureAwait(true);
+            if (ReferenceEquals(settingsSaveCancellation, owner))
+            {
+                SettingsSaveStatus = "所有设置已保存";
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or NotSupportedException)
+        {
+            if (ReferenceEquals(settingsSaveCancellation, owner))
+            {
+                SettingsSaveStatus = $"保存失败：{exception.Message}";
+            }
+        }
+        finally
+        {
+            if (ReferenceEquals(settingsSaveCancellation, owner))
+            {
+                settingsSaveCancellation = null;
+            }
+
+            owner.Dispose();
+        }
+    }
 
     private async Task<MacroLibraryOperationResult> RunOperationAsync(
         Func<Task<MacroLibraryOperationResult>> operation,
@@ -487,6 +887,7 @@ public sealed class MacroLibraryViewModel : ObservableObject, IDisposable
 
     private void RebuildVisibleItems()
     {
+        var previousRelativePath = SelectedItem?.RelativePath;
         var source = SelectedScope == TrashScope ? trashItems : activeItems;
         IEnumerable<MacroLibraryItem> filtered = SelectedScope switch
         {
@@ -507,17 +908,84 @@ public sealed class MacroLibraryViewModel : ObservableObject, IDisposable
                 item.GroupName.Contains(query, StringComparison.CurrentCultureIgnoreCase));
         }
 
-        filtered = SortByModified
-            ? filtered.OrderByDescending(item => item.LastWriteTime).ThenBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase)
-            : filtered.OrderBy(item => item.SortOrder).ThenBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase);
+        filtered = SelectedFormat switch
+        {
+            "xmouse" => filtered.Where(item => item.Kind == MacroLibraryItemKind.XMouseText),
+            "razer" => filtered.Where(item => item.Kind == MacroLibraryItemKind.RazerXml),
+            _ => filtered,
+        };
 
-        ReplaceCollection(XMouseItems, filtered.Where(item => item.Kind == MacroLibraryItemKind.XMouseText));
-        ReplaceCollection(RazerItems, filtered.Where(item => item.Kind == MacroLibraryItemKind.RazerXml));
-        SelectedXMouseItem = XMouseItems.FirstOrDefault();
-        SelectedRazerItem = RazerItems.FirstOrDefault();
+        filtered = SelectedSort switch
+        {
+            "modified" => filtered.OrderByDescending(item => item.LastWriteTime).ThenBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase),
+            "name" => filtered.OrderBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase),
+            _ => filtered.OrderBy(item => item.SortOrder).ThenBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase),
+        };
+
+        var visible = filtered.ToArray();
+        ReplaceCollection(VisibleItems, visible);
+        ReplaceCollection(XMouseItems, visible.Where(item => item.Kind == MacroLibraryItemKind.XMouseText));
+        ReplaceCollection(RazerItems, visible.Where(item => item.Kind == MacroLibraryItemKind.RazerXml));
+        SelectedItem = previousRelativePath is null
+            ? VisibleItems.FirstOrDefault()
+            : VisibleItems.FirstOrDefault(item => string.Equals(item.RelativePath, previousRelativePath, StringComparison.OrdinalIgnoreCase))
+                ?? VisibleItems.FirstOrDefault();
         OnPropertyChanged(nameof(HasXMouseItems));
         OnPropertyChanged(nameof(HasRazerItems));
+        OnPropertyChanged(nameof(HasVisibleItems));
+        OnPropertyChanged(nameof(VisibleItemCountText));
+        OnPropertyChanged(nameof(SelectedScopeDisplayName));
         NotifyActionState();
+    }
+
+    private async Task<IReadOnlyList<MacroLibraryItem>> EnrichItemsAsync(
+        IReadOnlyList<MacroLibraryItem> items,
+        CancellationToken cancellationToken)
+    {
+        var enriched = new MacroLibraryItem[items.Count];
+        for (var index = 0; index < items.Count; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var item = items[index];
+            StatusText = $"正在读取宏信息 {index + 1} / {items.Count}";
+            try
+            {
+                var result = await importService.ImportAsync(
+                    [GetFullPath(item)],
+                    new MacroImportOptions(MaximumFiles: 1),
+                    cancellationToken: cancellationToken).ConfigureAwait(true);
+                var eventCount = result.Documents.Sum(document => document.Events.Count);
+                var errorCount = result.Diagnostics.Count(diagnostic => diagnostic.Severity == Core.Diagnostics.DiagnosticSeverity.Error);
+                var warningCount = result.Diagnostics.Count(diagnostic => diagnostic.Severity == Core.Diagnostics.DiagnosticSeverity.Warning);
+                var parseSummary = result.Documents.Count == 0
+                    ? $"无法解析 · {result.Diagnostics.LastOrDefault()?.Message ?? "未知格式"}"
+                    : errorCount > 0 ? $"{errorCount} 个错误" : warningCount > 0 ? $"{warningCount} 个警告" : "格式正常";
+                enriched[index] = item with
+                {
+                    EventCount = result.Documents.Count == 0 ? null : eventCount,
+                    ParseSummary = parseSummary,
+                };
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or NotSupportedException)
+            {
+                enriched[index] = item with { ParseSummary = $"无法解析 · {exception.Message}" };
+            }
+        }
+
+        return enriched;
+    }
+
+    private bool IsCurrentPreview(MacroLibraryItem item, int generation) =>
+        generation == previewGeneration &&
+        SelectedItem is not null &&
+        string.Equals(SelectedItem.RelativePath, item.RelativePath, StringComparison.OrdinalIgnoreCase);
+
+    private void CancelPreview()
+    {
+        previewGeneration++;
+        previewCancellation?.Cancel();
+        previewCancellation?.Dispose();
+        previewCancellation = null;
     }
 
     private void SetPreview(MacroLibraryItemKind kind, string value)
@@ -543,6 +1011,17 @@ public sealed class MacroLibraryViewModel : ObservableObject, IDisposable
 
     private void NotifyActionState()
     {
+        OnPropertyChanged(nameof(HasVisibleItems));
+        OnPropertyChanged(nameof(HasSelectedItem));
+        OnPropertyChanged(nameof(CanUseSelectedItem));
+        OnPropertyChanged(nameof(CanEditSelectedText));
+        OnPropertyChanged(nameof(SelectedItemFormatText));
+        OnPropertyChanged(nameof(SelectedItemPathText));
+        OnPropertyChanged(nameof(SelectedItemEventCountText));
+        OnPropertyChanged(nameof(SelectedItemModifiedText));
+        OnPropertyChanged(nameof(VisibleItemCountText));
+        OnPropertyChanged(nameof(SelectedItemMetadataText));
+        OnPropertyChanged(nameof(FavoriteActionText));
         OnPropertyChanged(nameof(HasSelectedXMouseItem));
         OnPropertyChanged(nameof(HasSelectedRazerItem));
         OnPropertyChanged(nameof(CanUseSelectedXMouseItem));
@@ -623,6 +1102,10 @@ public sealed class MacroLibraryViewModel : ObservableObject, IDisposable
         }
 
         disposed = true;
+        CancelPreview();
+        settingsSaveCancellation?.Cancel();
+        settingsSaveCancellation?.Dispose();
+        settingsSaveCancellation = null;
         watcher?.Dispose();
         refreshTimer.Dispose();
         GC.SuppressFinalize(this);

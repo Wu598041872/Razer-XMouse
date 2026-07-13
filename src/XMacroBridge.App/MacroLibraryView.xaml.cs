@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -29,10 +30,7 @@ public partial class MacroLibraryView : UserControl
 
     private Window Owner => Window.GetWindow(this)!;
 
-    private MacroLibraryItem? SelectedItem =>
-        XMouseList.IsKeyboardFocusWithin || XMouseList.SelectedItem is not null && RazerList.SelectedItem is null
-            ? ViewModel.SelectedXMouseItem
-            : ViewModel.SelectedRazerItem ?? ViewModel.SelectedXMouseItem;
+    private MacroLibraryItem? SelectedItem => ViewModel.SelectedItem;
 
     private async void CreateGroup_Click(object sender, RoutedEventArgs e)
     {
@@ -108,6 +106,39 @@ public partial class MacroLibraryView : UserControl
 
     private void ImportXmlFiles_Click(object sender, RoutedEventArgs e) => ImportFiles(MacroLibraryItemKind.RazerXml);
 
+    private void ImportAnyFiles_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "导入宏文件",
+            Filter = "支持的宏文件|*.txt;*.xml|XMouse 宏文本|*.txt|雷云 4 宏 XML|*.xml",
+            Multiselect = true,
+            CheckFileExists = true,
+        };
+        if (dialog.ShowDialog(Owner) != true)
+        {
+            return;
+        }
+
+        _ = ImportMixedFilesAsync(dialog.FileNames);
+    }
+
+    private async Task ImportMixedFilesAsync(IEnumerable<string> paths)
+    {
+        var files = paths.ToArray();
+        var textFiles = files.Where(path => string.Equals(Path.GetExtension(path), ".txt", StringComparison.OrdinalIgnoreCase)).ToArray();
+        var xmlFiles = files.Where(path => string.Equals(Path.GetExtension(path), ".xml", StringComparison.OrdinalIgnoreCase)).ToArray();
+        if (textFiles.Length > 0)
+        {
+            await ShowResultAsync(ViewModel.ImportFilesAsync(ViewModel.GetSelectedGroupName(), textFiles, MacroLibraryItemKind.XMouseText));
+        }
+
+        if (xmlFiles.Length > 0)
+        {
+            await ShowResultAsync(ViewModel.ImportFilesAsync(ViewModel.GetSelectedGroupName(), xmlFiles, MacroLibraryItemKind.RazerXml));
+        }
+    }
+
     private async void ImportFiles(MacroLibraryItemKind kind)
     {
         var extension = kind == MacroLibraryItemKind.XMouseText ? "txt" : "xml";
@@ -143,8 +174,8 @@ public partial class MacroLibraryView : UserControl
 
     private async void EditText_Click(object sender, RoutedEventArgs e)
     {
-        var item = ViewModel.SelectedXMouseItem;
-        if (item is null || item.IsTrashed)
+        var item = ViewModel.SelectedItem;
+        if (item is null || item.IsTrashed || item.Kind != MacroLibraryItemKind.XMouseText)
         {
             return;
         }
@@ -157,16 +188,15 @@ public partial class MacroLibraryView : UserControl
         }
     }
 
-    private async void CopyText_Click(object sender, RoutedEventArgs e)
+    private async void CopyItem_Click(object sender, RoutedEventArgs e)
     {
-        var item = ViewModel.SelectedXMouseItem;
+        var item = ViewModel.SelectedItem;
         if (item is null || item.IsTrashed)
         {
             return;
         }
 
-        Clipboard.SetText(await ViewModel.ReadTextAsync(item));
-        await ViewModel.MarkRecentAsync(item);
+        await ShowResultAsync(ViewModel.CopyItemAsync(item));
     }
 
     private async void Favorite_Click(object sender, RoutedEventArgs e)
@@ -181,6 +211,21 @@ public partial class MacroLibraryView : UserControl
     private async void LibraryList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (sender is ListBox { SelectedItem: MacroLibraryItem item })
+        {
+            if (ViewModel.AutoLoadPreview)
+            {
+                await ViewModel.LoadPreviewAsync(item);
+            }
+            else
+            {
+                await ViewModel.LoadRawPreviewAsync(item);
+            }
+        }
+    }
+
+    private async void ManualPreview_Click(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel.SelectedItem is { } item)
         {
             await ViewModel.LoadPreviewAsync(item);
         }
@@ -287,7 +332,7 @@ public partial class MacroLibraryView : UserControl
 
         targetContainer = FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject)
             ?? (listBox.Items.Count > 0 ? listBox.ItemContainerGenerator.ContainerFromIndex(listBox.Items.Count - 1) as ListBoxItem : null)!;
-        if (targetContainer is null || targetContainer.DataContext is not MacroLibraryItem targetItem || targetItem.Kind != movedItem.Kind)
+        if (targetContainer is null || targetContainer.DataContext is not MacroLibraryItem targetItem)
         {
             return false;
         }
@@ -305,7 +350,7 @@ public partial class MacroLibraryView : UserControl
 
     private void ClearLibraryDropIndicators()
     {
-        foreach (var listBox in new[] { XMouseList, RazerList })
+        foreach (var listBox in new[] { UnifiedMacroList })
         {
             for (var index = 0; index < listBox.Items.Count; index++)
             {
@@ -357,20 +402,52 @@ public partial class MacroLibraryView : UserControl
         else
         {
             menu.Items.Add(CreateMenuItem("重命名", async () => await RenameItemAsync(item)));
-            menu.Items.Add(CreateMenuItem("移动到：未分组", async () => await ShowResultAsync(ViewModel.MoveItemAsync(item, string.Empty))));
-            foreach (var group in ViewModel.GetGroupNames())
+            menu.Items.Add(CreateMenuItem("打开文件位置", () =>
             {
-                var targetGroup = group;
-                menu.Items.Add(CreateMenuItem($"移动到：{group}", async () => await ShowResultAsync(ViewModel.MoveItemAsync(item, targetGroup))));
-            }
+                RevealItem(item);
+                return Task.CompletedTask;
+            }));
 
-            menu.Items.Add(CreateMenuItem("移入回收站", async () =>
+            if (ViewModel.DeleteToTrash)
             {
-                if (AppMessageDialog.Confirm(Owner, "删除宏", $"将“{item.Name}”移入宏库回收站？", "移入回收站", isDangerous: true))
+                menu.Items.Add(CreateMenuItem("移入回收站", async () =>
                 {
-                    await ShowResultAsync(ViewModel.MoveToTrashAsync(item));
-                }
-            }, isDangerous: true));
+                    if (AppMessageDialog.Confirm(Owner, "删除宏", $"将“{item.Name}”移入宏库回收站？", "移入回收站", isDangerous: true))
+                    {
+                        await ShowResultAsync(ViewModel.MoveToTrashAsync(item));
+                    }
+                }, isDangerous: true));
+            }
+            else
+            {
+                menu.Items.Add(CreateMenuItem("永久删除", async () =>
+                {
+                    if (AppMessageDialog.Confirm(Owner, "永久删除宏", $"永久删除“{item.Name}”？此操作无法撤销。", "永久删除", isDangerous: true))
+                    {
+                        await ShowResultAsync(ViewModel.DeleteItemPermanentlyAsync(item));
+                    }
+                }, isDangerous: true));
+            }
+        }
+
+        menu.PlacementTarget = button;
+        menu.IsOpen = true;
+    }
+
+    private void MoveSelected_Click(object sender, RoutedEventArgs e)
+    {
+        var item = ResolveItem(sender);
+        if (item is null || item.IsTrashed || sender is not Button button)
+        {
+            return;
+        }
+
+        var menu = new ContextMenu();
+        menu.Items.Add(CreateMenuItem("未分组", async () => await ShowResultAsync(ViewModel.MoveItemAsync(item, string.Empty))));
+        foreach (var group in ViewModel.GetGroupNames())
+        {
+            var targetGroup = group;
+            menu.Items.Add(CreateMenuItem(group, async () => await ShowResultAsync(ViewModel.MoveItemAsync(item, targetGroup))));
         }
 
         menu.PlacementTarget = button;
@@ -388,34 +465,19 @@ public partial class MacroLibraryView : UserControl
 
     private void RevealSelected_Click(object sender, RoutedEventArgs e)
     {
-        var item = ViewModel.SelectedRazerItem;
+        var item = ViewModel.SelectedItem;
         if (item is null || item.IsTrashed)
         {
             return;
         }
 
+        RevealItem(item);
+    }
+
+    private void RevealItem(MacroLibraryItem item) =>
         Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{ViewModel.GetFullPath(item)}\"") { UseShellExecute = true });
-    }
 
-    private MacroLibraryItem? ResolveItem(object sender)
-    {
-        if (ReferenceEquals(sender, RazerList) || sender is FrameworkElement { Tag: "razer" })
-        {
-            return ViewModel.SelectedRazerItem;
-        }
-
-        if (ReferenceEquals(sender, XMouseList) || sender is FrameworkElement { Tag: "xmouse" })
-        {
-            return ViewModel.SelectedXMouseItem;
-        }
-
-        if (RazerList.IsKeyboardFocusWithin)
-        {
-            return ViewModel.SelectedRazerItem;
-        }
-
-        return ViewModel.SelectedXMouseItem ?? ViewModel.SelectedRazerItem;
-    }
+    private MacroLibraryItem? ResolveItem(object sender) => ViewModel.SelectedItem;
 
     private static MenuItem CreateMenuItem(string header, Func<Task> action, bool isDangerous = false)
     {

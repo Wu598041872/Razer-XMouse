@@ -24,7 +24,7 @@
         DragOver="Window_DragOver"
         Drop="Window_Drop">
     <shell:WindowChrome.WindowChrome>
-        <shell:WindowChrome CaptionHeight="40"
+        <shell:WindowChrome CaptionHeight="44"
                            ResizeBorderThickness="6"
                            GlassFrameThickness="0"
                            CornerRadius="0"
@@ -40,7 +40,7 @@
 
         <Style x:Key="WindowCaptionButtonStyle" TargetType="Button">
             <Setter Property="Width" Value="46" />
-            <Setter Property="Height" Value="40" />
+            <Setter Property="Height" Value="44" />
             <Setter Property="Padding" Value="0" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
@@ -148,7 +148,7 @@
         </Style>
 
         <Style x:Key="TimelineRowStyle" TargetType="DataGridRow">
-            <Setter Property="Height" Value="42" />
+            <Setter Property="MinHeight" Value="44" />
             <Setter Property="Background" Value="{DynamicResource PanelBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
@@ -156,7 +156,7 @@
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
                     <Setter Property="Background" Value="{DynamicResource RowHoverBrush}" />
-                    <Setter Property="BorderBrush" Value="{DynamicResource RazerGreenBrush}" />
+                    <Setter Property="BorderBrush" Value="{DynamicResource StrongBorderBrush}" />
                 </Trigger>
                 <Trigger Property="IsSelected" Value="True">
                     <Setter Property="Background" Value="{DynamicResource SelectedGreenMutedBrush}" />
@@ -181,6 +181,8 @@
         </Style>
 
         <Style x:Key="EventIconPathStyle" TargetType="Path" BasedOn="{StaticResource TablerIconPathStyle}">
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="VerticalAlignment" Value="Center" />
             <Setter Property="Stroke" Value="{DynamicResource InfoBrush}" />
             <Setter Property="Data" Value="{DynamicResource InfoIconGeometry}" />
             <Style.Triggers>
@@ -204,6 +206,9 @@
                     <Setter Property="Stroke" Value="{DynamicResource ErrorBrush}" />
                     <Setter Property="Data" Value="{DynamicResource ErrorIconGeometry}" />
                 </DataTrigger>
+                <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=DataGridRow}}" Value="True">
+                    <Setter Property="Stroke" Value="{DynamicResource RazerGreenBrush}" />
+                </DataTrigger>
             </Style.Triggers>
         </Style>
 
@@ -212,6 +217,9 @@
             <Setter Property="Stroke" Value="{DynamicResource TextPrimaryBrush}" />
             <Style.Triggers>
                 <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=Button}}" Value="True">
+                    <Setter Property="Stroke" Value="{DynamicResource RazerGreenBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=DataGridRow}}" Value="True">
                     <Setter Property="Stroke" Value="{DynamicResource RazerGreenBrush}" />
                 </DataTrigger>
                 <DataTrigger Binding="{Binding IsEnabled, RelativeSource={RelativeSource AncestorType=Button}}" Value="False">
@@ -225,7 +233,10 @@
             <Setter Property="Stroke" Value="{DynamicResource TextPrimaryBrush}" />
             <Style.Triggers>
                 <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=Button}}" Value="True">
-                    <Setter Property="Stroke" Value="{DynamicResource ErrorBrush}" />
+                    <Setter Property="Stroke" Value="{DynamicResource RazerGreenHoverBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=DataGridRow}}" Value="True">
+                    <Setter Property="Stroke" Value="{DynamicResource RazerGreenBrush}" />
                 </DataTrigger>
                 <DataTrigger Binding="{Binding IsEnabled, RelativeSource={RelativeSource AncestorType=Button}}" Value="False">
                     <Setter Property="Stroke" Value="{DynamicResource TextDisabledBrush}" />
@@ -238,6 +249,9 @@
             <Setter Property="Stroke" Value="{DynamicResource TextSecondaryBrush}" />
             <Style.Triggers>
                 <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=Border}}" Value="True">
+                    <Setter Property="Stroke" Value="{DynamicResource RazerGreenBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=DataGridRow}}" Value="True">
                     <Setter Property="Stroke" Value="{DynamicResource RazerGreenBrush}" />
                 </DataTrigger>
             </Style.Triggers>
@@ -258,25 +272,55 @@
                 <DataTrigger Binding="{Binding VisualKind}" Value="{x:Static workspace:MacroEventVisualKind.Error}">
                     <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
                 </DataTrigger>
+                <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=DataGridRow}}" Value="True">
+                    <Setter Property="Foreground" Value="{DynamicResource RazerGreenBrush}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="TimelineSequenceTextStyle" TargetType="TextBlock" BasedOn="{StaticResource TabularNumberTextStyle}">
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+            <Setter Property="FontFamily" Value="{DynamicResource MonospaceFontFamily}" />
+            <Setter Property="FontSize" Value="12" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=DataGridRow}}" Value="True">
+                    <Setter Property="Foreground" Value="{DynamicResource RazerGreenBrush}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="TimelineTransitionIconStyle" TargetType="Path" BasedOn="{StaticResource TablerIconPathStyle}">
+            <Setter Property="Width" Value="16" />
+            <Setter Property="Height" Value="16" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Stroke" Value="{DynamicResource TextPrimaryBrush}" />
+            <Setter Property="StrokeThickness" Value="2.2" />
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding TransitionSymbol}" Value="↓">
+                    <Setter Property="Data" Value="{DynamicResource ArrowBarToDownIconGeometry}" />
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding TransitionSymbol}" Value="↑">
+                    <Setter Property="Data" Value="{DynamicResource ArrowBarUpIconGeometry}" />
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=DataGridRow}}" Value="True">
+                    <Setter Property="Stroke" Value="{DynamicResource RazerGreenBrush}" />
+                </DataTrigger>
             </Style.Triggers>
         </Style>
 
         <Style x:Key="TimelineSelectionCheckBoxStyle" TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}">
-            <Setter Property="Visibility" Value="Collapsed" />
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=DataGridRow}}" Value="True">
-                    <Setter Property="Visibility" Value="Visible" />
-                </DataTrigger>
-                <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=DataGridRow}}" Value="True">
-                    <Setter Property="Visibility" Value="Visible" />
-                </DataTrigger>
-            </Style.Triggers>
+            <Setter Property="Visibility" Value="Visible" />
         </Style>
 
         <Style x:Key="TimelineHoverPanelStyle" TargetType="StackPanel">
             <Setter Property="Visibility" Value="Collapsed" />
             <Style.Triggers>
-                <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=DataGridRow}}" Value="True">
+                <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=DataGridRow}}" Value="True">
                     <Setter Property="Visibility" Value="Visible" />
                 </DataTrigger>
             </Style.Triggers>
@@ -290,12 +334,30 @@
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderBrush" Value="Transparent" />
         </Style>
+
+        <Style x:Key="WorkspaceSaveButtonStyle" TargetType="Button" BasedOn="{StaticResource SecondaryButtonStyle}">
+            <Setter Property="Background" Value="{DynamicResource WindowBackgroundBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="Padding" Value="18,0" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="WorkspaceExportButtonStyle" TargetType="Button" BasedOn="{StaticResource PrimaryButtonStyle}">
+            <Setter Property="Background" Value="{DynamicResource WindowBackgroundBrush}" />
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="Padding" Value="18,0" />
+        </Style>
     </Window.Resources>
 
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="40" />
-            <RowDefinition Height="74" />
+            <RowDefinition Height="44" />
+            <RowDefinition Height="76" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
@@ -317,12 +379,13 @@
                     <ColumnDefinition Width="46" />
                 </Grid.ColumnDefinitions>
                 <StackPanel Margin="14,0,18,0" VerticalAlignment="Center" Orientation="Horizontal">
-                <Image x:Name="BrandNavigationLogo" Width="20" Height="20"
+                <Image x:Name="BrandNavigationLogo" Width="22" Height="22"
                        IsHitTestVisible="False"
                        AutomationProperties.Name=""
                        RenderOptions.BitmapScalingMode="HighQuality"
-                           Source="Assets/XMacroBridgeLogo.png" />
-                    <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" Foreground="{DynamicResource TextPrimaryBrush}" FontSize="13" FontWeight="SemiBold" Text="XMACRO BRIDGE" />
+                           Source="{DynamicResource BrandLogoImage}" />
+                    <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" Foreground="{DynamicResource TextPrimaryBrush}"
+                               FontFamily="{DynamicResource DisplayFontFamily}" FontSize="13" FontWeight="SemiBold" Text="XMACRO BRIDGE" />
                 </StackPanel>
                 <Button x:Name="MacroNavigationButton" Grid.Column="1"
                         shell:WindowChrome.IsHitTestVisibleInChrome="True"
@@ -410,46 +473,54 @@
                 <Grid Grid.Column="1" VerticalAlignment="Center">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="15" />
-                        <RowDefinition Height="3" />
-                        <RowDefinition Height="32" />
+                        <RowDefinition Height="4" />
+                        <RowDefinition Height="40" />
                     </Grid.RowDefinitions>
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="160" />
-                        <ColumnDefinition Width="10" />
-                        <ColumnDefinition Width="160" />
-                        <ColumnDefinition Width="10" />
-                        <ColumnDefinition Width="104" />
+                        <ColumnDefinition Width="142" />
                         <ColumnDefinition Width="8" />
-                        <ColumnDefinition Width="104" />
+                        <ColumnDefinition Width="142" />
+                        <ColumnDefinition Width="8" />
+                        <ColumnDefinition Width="128" />
+                        <ColumnDefinition Width="8" />
+                        <ColumnDefinition Width="136" />
                     </Grid.ColumnDefinitions>
-                    <TextBlock x:Name="CurrentMacroLabel" Grid.Row="0" HorizontalAlignment="Center"
+                    <TextBlock x:Name="CurrentMacroLabel" Grid.Row="0" HorizontalAlignment="Left"
                                Style="{StaticResource CaptionStyle}" Text="当前宏" />
-                    <Border x:Name="CurrentMacroValueHost" Grid.Row="2" Height="32" Padding="9,4"
-                            Background="{DynamicResource ControlBrush}"
+                    <Border x:Name="CurrentMacroValueHost" Grid.Row="2" Height="34" Padding="10,0" VerticalAlignment="Bottom"
+                            Background="{DynamicResource WindowBackgroundBrush}"
                             BorderBrush="{DynamicResource BorderBrush}"
                             BorderThickness="1"
                             CornerRadius="3">
-                        <TextBlock x:Name="CurrentMacroValueText" MaxWidth="140"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center"
-                                   FontWeight="SemiBold" TextAlignment="Center"
-                                   Text="{Binding SelectedMacro.Name, TargetNullValue=尚未选择宏}"
-                                   TextTrimming="CharacterEllipsis" ToolTip="{Binding SelectedMacro.Name}" />
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Grid Width="7" Height="7" Margin="0,0,8,0" VerticalAlignment="Center">
+                                <Ellipse Fill="{DynamicResource TextDisabledBrush}" />
+                                <Ellipse Fill="{DynamicResource RazerGreenBrush}"
+                                         Visibility="{Binding IsDirty, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                            </Grid>
+                            <TextBlock x:Name="CurrentMacroValueText" Grid.Column="1"
+                                       HorizontalAlignment="Stretch" VerticalAlignment="Center"
+                                       FontWeight="SemiBold" TextAlignment="Left"
+                                       Text="{Binding SelectedMacro.Name, TargetNullValue=尚未选择宏}"
+                                       TextTrimming="CharacterEllipsis" ToolTip="{Binding SelectedMacro.Name}" />
+                        </Grid>
                     </Border>
-                    <TextBlock x:Name="TargetFormatLabel" Grid.Row="0" Grid.Column="2" HorizontalAlignment="Center"
+                    <TextBlock x:Name="TargetFormatLabel" Grid.Row="0" Grid.Column="2" HorizontalAlignment="Left"
                                Style="{StaticResource CaptionStyle}" Text="目标格式" />
-                    <ComboBox x:Name="TargetFormatSelector" Grid.Row="2" Grid.Column="2"
-                              HorizontalContentAlignment="Center"
+                    <ComboBox x:Name="TargetFormatSelector" Grid.Row="2" Grid.Column="2" Height="34" VerticalAlignment="Bottom"
+                              HorizontalContentAlignment="Left" Background="{DynamicResource WindowBackgroundBrush}"
                               AutomationProperties.Name="目标导出格式" TabIndex="4"
                               ItemsSource="{Binding ExportFormats}" DisplayMemberPath="DisplayName" SelectedValuePath="FormatId"
                               SelectedValue="{Binding TargetFormatId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                    <Button x:Name="ExportButton" Grid.Row="2" Grid.Column="4" MinWidth="112"
-                            AutomationProperties.Name="安全导出当前宏" TabIndex="5"
-                            Click="Export_Click" Content="安全导出" IsEnabled="{Binding CanExport}"
-                             Style="{StaticResource PrimaryButtonStyle}" ToolTip="{Binding ExportAvailabilityText}" />
-                    <Button x:Name="SaveToLibraryButton" Grid.Row="2" Grid.Column="6" MinWidth="112"
+                    <Button x:Name="SaveToLibraryButton" Grid.Row="2" Grid.Column="4" Height="40" MinWidth="128"
                             AutomationProperties.Name="保存当前宏到宏库" TabIndex="6"
                             Click="SaveToLibrary_Click" Content="保存到宏库" IsEnabled="{Binding CanExport}"
-                            Style="{StaticResource SecondaryButtonStyle}" ToolTip="使用当前目标格式保存到宏库" />
+                            Style="{StaticResource WorkspaceSaveButtonStyle}" ToolTip="使用当前目标格式保存到宏库" />
+                    <Button x:Name="ExportButton" Grid.Row="2" Grid.Column="6" Height="40" MinWidth="136"
+                            AutomationProperties.Name="安全导出当前宏" TabIndex="5"
+                            Click="Export_Click" Content="安全导出" IsEnabled="{Binding CanExport}"
+                            Style="{StaticResource WorkspaceExportButtonStyle}" ToolTip="{Binding ExportAvailabilityText}" />
                 </Grid>
             </Grid>
         </Border>
@@ -458,7 +529,16 @@
                 Background="{DynamicResource ToolbarBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1"
                 DataContext="{Binding ElementName=MacroLibraryContent, Path=DataContext}">
             <Grid Margin="20,8">
-                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="260" /><ColumnDefinition Width="10" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="8" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="8" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" MinWidth="200" />
+                    <ColumnDefinition Width="1.2*" MinWidth="240" MaxWidth="420" />
+                    <ColumnDefinition Width="8" />
+                    <ColumnDefinition Width="120" />
+                    <ColumnDefinition Width="8" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="8" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
                 <StackPanel VerticalAlignment="Center">
                     <TextBlock FontSize="17" FontWeight="SemiBold" Text="宏库" />
                     <TextBlock Margin="0,3,0,0" AutomationProperties.Name="宏库保存路径" Style="{StaticResource CaptionStyle}" Text="{Binding RootPathDisplay}" TextTrimming="CharacterEllipsis" />
@@ -467,18 +547,28 @@
                          Tag="搜索宏名称或分组" PreviewKeyDown="LibrarySearchTextBox_PreviewKeyDown"
                          Style="{StaticResource SearchTextBoxStyle}"
                          Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged, Delay=200}" />
-                <Button x:Name="RefreshLibraryButton" Grid.Column="3" MinWidth="72" VerticalAlignment="Center" Click="RefreshLibrary_Click" Content="刷新" Style="{StaticResource SecondaryButtonStyle}" />
-                <Button Grid.Column="5" MinWidth="90" VerticalAlignment="Center" Click="OpenLibraryFolder_Click" Content="打开目录" Style="{StaticResource PrimaryButtonStyle}" />
-                <CheckBox Grid.Column="7" VerticalAlignment="Center" Content="按时间排序" IsChecked="{Binding SortByModified, Mode=TwoWay}" />
+                <ComboBox Grid.Column="3" VerticalAlignment="Center" AutomationProperties.Name="宏库排序方式"
+                          ItemsSource="{Binding SortOptions}" DisplayMemberPath="DisplayName" SelectedValuePath="Key"
+                          SelectedValue="{Binding SelectedSort, Mode=TwoWay}" />
+                <Button x:Name="RefreshLibraryButton" Grid.Column="5" MinWidth="60" VerticalAlignment="Center" Click="RefreshLibrary_Click" Content="刷新" Style="{StaticResource SecondaryButtonStyle}" />
+                <Button Grid.Column="7" MinWidth="80" VerticalAlignment="Center" Click="OpenLibraryFolder_Click" Content="打开目录" Style="{StaticResource PrimaryButtonStyle}" />
             </Grid>
         </Border>
 
         <Border x:Name="SettingsToolbar" Grid.Row="1" Visibility="Collapsed"
-                Background="{DynamicResource ToolbarBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
-            <StackPanel Margin="20,8" VerticalAlignment="Center">
-                <TextBlock FontSize="17" FontWeight="SemiBold" Text="设置" />
-                <TextBlock Margin="0,3,0,0" Style="{StaticResource CaptionStyle}" Text="配置宏库路径和本地工作方式" />
-            </StackPanel>
+                Background="{DynamicResource ToolbarBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1"
+                DataContext="{Binding ElementName=MacroLibraryContent, Path=DataContext}">
+            <Grid Margin="20,8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock FontSize="17" FontWeight="SemiBold" Text="设置" />
+                    <TextBlock Margin="0,3,0,0" Style="{StaticResource CaptionStyle}" Text="配置宏库、转换导出和工作区行为" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Orientation="Horizontal">
+                    <Ellipse Width="7" Height="7" Margin="0,0,7,0" Fill="{DynamicResource RazerGreenBrush}" />
+                    <TextBlock AutomationProperties.LiveSetting="Polite" Style="{StaticResource CaptionStyle}" Text="{Binding SettingsSaveStatus}" />
+                </StackPanel>
+            </Grid>
         </Border>
 
         <ScrollViewer x:Name="WorkspaceScrollViewer"
@@ -492,11 +582,11 @@
                       SizeChanged="WorkspaceScrollViewer_SizeChanged"
                       ScrollChanged="WorkspaceScrollViewer_ScrollChanged">
         <Grid x:Name="MacroContent"
-              MinWidth="840"
+              MinWidth="820"
               MinHeight="600"
               Margin="12,16">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="250" MinWidth="240" />
+                <ColumnDefinition Width="230" MinWidth="214" />
                 <ColumnDefinition Width="12" />
                 <ColumnDefinition Width="*" MinWidth="578" />
             </Grid.ColumnDefinitions>
@@ -605,15 +695,8 @@
 
                         <Border x:Name="TimelineSelectionToolbar" Grid.Row="1" Padding="10,8" Background="{DynamicResource ToolbarSectionBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,1"
                                 Visibility="{Binding HasSelectedMacro, Converter={StaticResource BooleanToVisibilityConverter}}">
-                            <WrapPanel ItemHeight="32" VerticalAlignment="Center">
-                                <TextBlock Margin="0,0,5,0" VerticalAlignment="Center" Style="{StaticResource CaptionStyle}" Text="插入延时" />
-                                <TextBox x:Name="NewDelayMillisecondsTextBox" Width="62" AutomationProperties.Name="新插入延时毫秒" TabIndex="12"
-                                         Style="{StaticResource ParameterTextBoxStyle}"
-                                         Text="{Binding NewDelayMillisecondsText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                                <TextBlock Margin="5,0,6,0" VerticalAlignment="Center" Style="{StaticResource CaptionStyle}" Text="ms" />
-                                <Button x:Name="InsertDelayButton" MinWidth="48" AutomationProperties.Name="在选中事件之后插入固定延时" TabIndex="13"
-                                        Click="InsertDelay_Click" Content="插入" IsEnabled="{Binding CanInsertDelay}" Style="{StaticResource SecondaryButtonStyle}" />
-                                <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Text="选择事件后可编辑">
+                            <WrapPanel ItemHeight="36" VerticalAlignment="Center">
+                                <TextBlock Margin="0,0,8,0" VerticalAlignment="Center" Text="选择事件后可编辑">
                                     <TextBlock.Style>
                                         <Style TargetType="TextBlock" BasedOn="{StaticResource CaptionStyle}">
                                             <Setter Property="Visibility" Value="Visible" />
@@ -641,9 +724,13 @@
                                 <Button x:Name="MoveEventDownButton" Margin="6,0,0,0" MinWidth="48" AutomationProperties.Name="向下移动选中的时间线事件" TabIndex="18"
                                         Click="MoveEventDown_Click" Content="下移" IsEnabled="{Binding CanMoveEventDown}" Style="{StaticResource SecondaryButtonStyle}"
                                         Visibility="{Binding HasSelectedEvents, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                                <Button x:Name="UndoButton" Margin="10,0,0,0" MinWidth="48" AutomationProperties.Name="撤销时间线编辑" TabIndex="19"
+                                <Button x:Name="AddOperationButton" Margin="10,0,0,0" MinWidth="82"
+                                        AutomationProperties.Name="展开或收起添加操作参数" TabIndex="19"
+                                        Click="ToggleAddOperation_Click" Content="添加操作" IsEnabled="{Binding CanInsertEvent}"
+                                        Style="{StaticResource PrimaryButtonStyle}" />
+                                <Button x:Name="UndoButton" Margin="10,0,0,0" MinWidth="48" AutomationProperties.Name="撤销时间线编辑" TabIndex="20"
                                         Click="Undo_Click" Content="撤销" IsEnabled="{Binding CanUndo}" Style="{StaticResource SecondaryButtonStyle}" ToolTip="{Binding UndoAvailabilityText}" />
-                                <Button x:Name="RedoButton" Margin="6,0,0,0" MinWidth="48" AutomationProperties.Name="重做时间线编辑" TabIndex="20"
+                                <Button x:Name="RedoButton" Margin="6,0,0,0" MinWidth="48" AutomationProperties.Name="重做时间线编辑" TabIndex="21"
                                         Click="Redo_Click" Content="重做" IsEnabled="{Binding CanRedo}" Style="{StaticResource SecondaryButtonStyle}" ToolTip="{Binding RedoAvailabilityText}" />
                                 <Rectangle Width="1" Height="20" Margin="10,0" VerticalAlignment="Center" Fill="{DynamicResource BorderBrush}" Visibility="Collapsed" />
                                 <TextBlock Margin="0,0,5,0" VerticalAlignment="Center" Style="{StaticResource CaptionStyle}" Text="全部延时" Visibility="Collapsed" />
@@ -659,8 +746,16 @@
                         </Border>
 
                         <Border x:Name="TimelineInsertionToolbar" Grid.Row="2" Padding="10,8" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1"
-                                Visibility="{Binding HasSelectedMacro, Converter={StaticResource BooleanToVisibilityConverter}}">
-                            <WrapPanel ItemHeight="32" VerticalAlignment="Center">
+                                Visibility="{Binding IsAddOperationPanelOpen, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <WrapPanel ItemHeight="36" VerticalAlignment="Center">
+                                <TextBlock Margin="0,0,5,0" VerticalAlignment="Center" Style="{StaticResource CaptionStyle}" Text="延时" />
+                                <TextBox x:Name="NewDelayMillisecondsTextBox" Width="62" AutomationProperties.Name="新插入延时毫秒" TabIndex="12"
+                                         Style="{StaticResource ParameterTextBoxStyle}"
+                                         Text="{Binding NewDelayMillisecondsText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                <TextBlock Margin="5,0,6,0" VerticalAlignment="Center" Style="{StaticResource CaptionStyle}" Text="ms" />
+                                <Button x:Name="InsertDelayButton" MinWidth="72" AutomationProperties.Name="在选中事件之后插入固定延时" TabIndex="13"
+                                        Click="InsertDelay_Click" Content="插入延时" IsEnabled="{Binding CanInsertDelay}" Style="{StaticResource SecondaryButtonStyle}" />
+                                <Rectangle Width="1" Height="20" Margin="10,0" VerticalAlignment="Center" Fill="{DynamicResource BorderBrush}" />
                                 <TextBlock Margin="0,0,5,0" VerticalAlignment="Center" Style="{StaticResource CaptionStyle}" Text="键盘按键" />
                                 <TextBox x:Name="VirtualKeyTextBox" Width="82" AutomationProperties.Name="捕获新键盘事件按键" TabIndex="21"
                                          AutomationProperties.HelpText="点击输入框后直接按下目标键"
@@ -762,45 +857,27 @@
                                             <Border Padding="10,0,16,0" ClipToBounds="True" ToolTip="{Binding TechnicalSummary}">
                                                 <Grid ClipToBounds="True">
                                                     <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="34" />
+                                                        <ColumnDefinition Width="32" />
                                                         <ColumnDefinition Width="40" />
-                                                        <ColumnDefinition Width="26" />
-                                                        <ColumnDefinition Width="28" />
+                                                        <ColumnDefinition Width="30" />
+                                                        <ColumnDefinition Width="30" />
                                                         <ColumnDefinition Width="*" />
                                                         <ColumnDefinition Width="Auto" />
                                                     </Grid.ColumnDefinitions>
-                                                    <Border Width="3" HorizontalAlignment="Left" Background="{DynamicResource RazerGreenBrush}" Panel.ZIndex="2">
-                                                        <Border.Style>
-                                                            <Style TargetType="Border">
-                                                                <Setter Property="Visibility" Value="Collapsed" />
-                                                                <Style.Triggers>
-                                                                    <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=DataGridRow}}" Value="True">
-                                                                        <Setter Property="Visibility" Value="Visible" />
-                                                                    </DataTrigger>
-                                                                </Style.Triggers>
-                                                            </Style>
-                                                        </Border.Style>
-                                                    </Border>
                                                     <CheckBox Grid.Column="0"
-                                                              HorizontalAlignment="Left"
+                                                              HorizontalAlignment="Center"
                                                               VerticalAlignment="Center"
                                                               AutomationProperties.Name="选择时间线事件"
                                                               IsChecked="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=DataGridRow}, Mode=OneWay}"
                                                               PreviewMouseLeftButtonDown="EventSelectionCheckBox_PreviewMouseLeftButtonDown"
                                                               Style="{StaticResource TimelineSelectionCheckBoxStyle}" />
                                                     <TextBlock Grid.Column="1"
-                                                               VerticalAlignment="Center"
-                                                               Foreground="{DynamicResource TextSecondaryBrush}"
-                                                               FontSize="12"
-                                                               Style="{StaticResource TabularNumberTextStyle}"
+                                                               HorizontalAlignment="Center"
+                                                               TextAlignment="Center"
+                                                               Style="{StaticResource TimelineSequenceTextStyle}"
                                                                Text="{Binding DisplayNumber, StringFormat={}{0:D2}}" />
-                                                    <Path Grid.Column="2" HorizontalAlignment="Left" VerticalAlignment="Center" Style="{StaticResource EventIconPathStyle}" />
-                                                    <TextBlock Grid.Column="3"
-                                                               VerticalAlignment="Center"
-                                                               Foreground="{DynamicResource TextPrimaryBrush}"
-                                                               FontFamily="Segoe UI Symbol"
-                                                               FontSize="15"
-                                                               Text="{Binding TransitionSymbol}" />
+                                                    <Path Grid.Column="2" Tag="TimelineEventTypeIcon" Style="{StaticResource EventIconPathStyle}" />
+                                                    <Path Grid.Column="3" Tag="TimelineTransitionIcon" Style="{StaticResource TimelineTransitionIconStyle}" />
                                                     <TextBlock Grid.Column="4" Style="{StaticResource TimelineEditorLabelStyle}" Text="{Binding EditorLabel}" />
                                                     <StackPanel Grid.Column="5" Margin="12,0,4,0" HorizontalAlignment="Right" VerticalAlignment="Center" Orientation="Horizontal"
                                                                 Tag="TimelineActions"
@@ -1007,52 +1084,118 @@
 
         <local:MacroLibraryView x:Name="MacroLibraryContent" Grid.Row="2" Visibility="Collapsed" />
 
-        <ScrollViewer x:Name="SettingsContent" Grid.Row="2" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-        <Grid Margin="24">
-            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="720" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-            <StackPanel Grid.Column="1" Margin="0,26,0,0">
-                <TextBlock FontSize="18" FontWeight="SemiBold" Text="设置与关于" />
-                <TextBlock Margin="0,5,0,20" Style="{StaticResource CaptionStyle}" Text="XMacro Bridge 使用固定的雷云暗色界面，转换过程完全在本机完成。" />
-                <Border Margin="0,0,0,12" Padding="20" Style="{StaticResource CardStyle}"
-                        DataContext="{Binding ElementName=MacroLibraryContent, Path=DataContext}">
-                    <StackPanel>
-                        <TextBlock FontSize="16" FontWeight="SemiBold" Text="宏库保存路径" />
-                        <TextBlock Margin="0,5,0,12" Style="{StaticResource CaptionStyle}" Text="切换路径不会移动旧资料；迁移会复制并校验后再切换。" />
-                        <TextBox AutomationProperties.Name="宏库保存路径" Style="{StaticResource ReadOnlyFieldStyle}" Text="{Binding RootPathDisplay, Mode=OneWay}" />
-                        <WrapPanel Margin="0,12,0,0">
-                            <Button Click="ChooseLibraryRoot_Click" Content="选择路径" Style="{StaticResource PrimaryButtonStyle}" />
-                            <Button Margin="8,0,0,0" Click="OpenLibraryFolder_Click" Content="打开目录" Style="{StaticResource SecondaryButtonStyle}" />
-                            <Button Margin="8,0,0,0" Click="RestoreDefaultLibraryRoot_Click" Content="恢复默认" Style="{StaticResource SecondaryButtonStyle}" />
-                            <Button Margin="8,0,0,0" Click="MigrateLibrary_Click" Content="迁移宏库" Style="{StaticResource SecondaryButtonStyle}" />
-                        </WrapPanel>
-                        <TextBlock Margin="0,10,0,0" AutomationProperties.LiveSetting="Polite" Style="{StaticResource CaptionStyle}" Text="{Binding StatusText}" />
-                        <TextBlock Margin="0,5,0,0" Foreground="{DynamicResource WarningBrush}" Text="{Binding WarningsText}" TextWrapping="Wrap" />
-                    </StackPanel>
-                </Border>
-                <Border Padding="20" Style="{StaticResource CardStyle}">
-                    <Grid>
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="52" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                        <Image x:Name="BrandSettingsLogo" Width="36" Height="36" HorizontalAlignment="Left" VerticalAlignment="Top"
-                               IsHitTestVisible="False"
-                               AutomationProperties.Name=""
-                               RenderOptions.BitmapScalingMode="HighQuality"
-                               Source="Assets/XMacroBridgeLogo.png" />
-                        <StackPanel Grid.Column="1">
-                            <TextBlock FontSize="16" FontWeight="SemiBold" Text="RAZER XMACRO BRIDGE" />
-                            <TextBlock Margin="0,4,0,0" Style="{StaticResource CaptionStyle}" Text="雷蛇宏转换增强工具" />
-                            <Separator Margin="0,16" Background="{DynamicResource BorderBrush}" />
-                            <TextBlock Text="本地离线处理" FontWeight="SemiBold" />
-                            <TextBlock Margin="0,5,0,0" Style="{StaticResource CaptionStyle}" Text="不会连接云端，不会修改雷云或 X-Mouse 的原始配置；导出使用安全临时文件流程。" TextWrapping="Wrap" />
-                            <TextBlock Margin="0,18,0,0" Foreground="{DynamicResource TextSecondaryBrush}" Text="Razer 增强工具 · 非官方" />
-                            <TextBlock Margin="0,4,0,0" Style="{StaticResource CaptionStyle}" Text="个人本地工具，非 Razer 官方产品。" />
-                            <TextBlock Margin="0,14,0,0" Style="{StaticResource CaptionStyle}"
-                                       Text="{Binding ApplicationVersion, RelativeSource={RelativeSource AncestorType=Window}, StringFormat=版本 {0}}" />
-                            <Button Margin="0,10,0,0" Width="132" HorizontalAlignment="Left"
-                                    Click="OpenThirdPartyNotices_Click" Content="第三方许可说明" Style="{StaticResource SecondaryButtonStyle}" />
+        <ScrollViewer x:Name="SettingsContent" Grid.Row="2" Visibility="Collapsed"
+                      HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Disabled">
+        <Grid Margin="12,16" DataContext="{Binding ElementName=MacroLibraryContent, Path=DataContext}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="220" MinWidth="190" />
+                <ColumnDefinition Width="12" />
+                <ColumnDefinition Width="*" MinWidth="600" />
+            </Grid.ColumnDefinitions>
+            <Border Padding="12" Style="{StaticResource CardStyle}">
+                <StackPanel>
+                    <TextBlock Margin="8,6,8,12" Style="{StaticResource SectionTitleStyle}" Text="设置分类" />
+                    <ListBox x:Name="SettingsCategoryList" AutomationProperties.Name="设置分类"
+                             SelectionChanged="SettingsCategoryList_SelectionChanged" SelectedIndex="0"
+                             Background="Transparent" BorderThickness="0">
+                        <ListBoxItem MinHeight="46" Padding="12,8" Content="宏库" />
+                        <ListBoxItem MinHeight="46" Padding="12,8" Content="转换与导出" />
+                        <ListBoxItem MinHeight="46" Padding="12,8" Content="工作区" />
+                        <ListBoxItem MinHeight="46" Padding="12,8" Content="关于" />
+                    </ListBox>
+                </StackPanel>
+            </Border>
+            <Border Grid.Column="2" Padding="20" Style="{StaticResource CardStyle}">
+                <Grid>
+                    <ScrollViewer x:Name="LibrarySettingsPanel" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel MaxWidth="760" HorizontalAlignment="Left">
+                            <TextBlock FontSize="18" FontWeight="SemiBold" Text="宏库" />
+                            <TextBlock Margin="0,5,0,20" Style="{StaticResource CaptionStyle}" Text="管理本地宏库路径、迁移和条目行为。" />
+                            <TextBlock FontWeight="SemiBold" Text="宏库保存路径" />
+                            <TextBox Margin="0,8,0,0" AutomationProperties.Name="宏库保存路径" Style="{StaticResource ReadOnlyFieldStyle}" Text="{Binding RootPathDisplay, Mode=OneWay}" />
+                            <WrapPanel Margin="0,12,0,0">
+                                <Button Click="ChooseLibraryRoot_Click" Content="选择路径" Style="{StaticResource PrimaryButtonStyle}" />
+                                <Button Margin="8,0,0,0" Click="OpenLibraryFolder_Click" Content="打开目录" Style="{StaticResource SecondaryButtonStyle}" />
+                                <Button Margin="8,0,0,0" Click="RestoreDefaultLibraryRoot_Click" Content="恢复默认" Style="{StaticResource SecondaryButtonStyle}" />
+                                <Button Margin="8,0,0,0" Click="MigrateLibrary_Click" Content="迁移宏库" Style="{StaticResource SecondaryButtonStyle}" />
+                            </WrapPanel>
+                            <Separator Margin="0,20" />
+                            <CheckBox AutomationProperties.Name="删除宏时移入回收站" Content="删除宏时移入应用回收站"
+                                      IsChecked="{Binding DeleteToTrash, Mode=TwoWay}" Style="{StaticResource SwitchCheckBoxStyle}" />
+                            <TextBlock Margin="0,2,52,10" Style="{StaticResource CaptionStyle}" Text="关闭后，永久删除仍会要求再次确认。" TextWrapping="Wrap" />
+                            <CheckBox AutomationProperties.Name="选择宏后自动加载预览" Content="选择宏后自动加载预览"
+                                      IsChecked="{Binding AutoLoadPreview, Mode=TwoWay}" Style="{StaticResource SwitchCheckBoxStyle}" />
+                            <TextBlock Margin="0,12,0,0" AutomationProperties.LiveSetting="Polite" Style="{StaticResource CaptionStyle}" Text="{Binding StatusText}" />
+                            <TextBlock Margin="0,5,0,0" Foreground="{DynamicResource WarningBrush}" Text="{Binding WarningsText}" TextWrapping="Wrap" />
                         </StackPanel>
-                    </Grid>
-                </Border>
-            </StackPanel>
+                    </ScrollViewer>
+
+                    <ScrollViewer x:Name="ConversionSettingsPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel MaxWidth="760" HorizontalAlignment="Left">
+                            <TextBlock FontSize="18" FontWeight="SemiBold" Text="转换与导出" />
+                            <TextBlock Margin="0,5,0,20" Style="{StaticResource CaptionStyle}" Text="设置默认目标格式和导出后的本地行为。" />
+                            <TextBlock FontWeight="SemiBold" Text="默认目标格式" />
+                            <ComboBox Width="260" Margin="0,8,0,16" HorizontalAlignment="Left"
+                                      ItemsSource="{Binding TargetFormatOptions}" DisplayMemberPath="DisplayName" SelectedValuePath="Key"
+                                      SelectedValue="{Binding DefaultTargetFormat, Mode=TwoWay}" />
+                            <TextBlock FontWeight="SemiBold" Text="同名文件处理" />
+                            <ComboBox Width="260" Margin="0,8,0,16" HorizontalAlignment="Left"
+                                      ItemsSource="{Binding SameNameOptions}" DisplayMemberPath="DisplayName" SelectedValuePath="Key"
+                                      SelectedValue="{Binding SameNameHandling, Mode=TwoWay}" />
+                            <CheckBox Content="导出前运行安全检查" IsChecked="{Binding RunSafetyCheckBeforeExport, Mode=TwoWay}" Style="{StaticResource SwitchCheckBoxStyle}" />
+                            <CheckBox Margin="0,8,0,0" Content="导出完成后打开文件位置" IsChecked="{Binding OpenOutputFolderAfterExport, Mode=TwoWay}" Style="{StaticResource SwitchCheckBoxStyle}" />
+                            <CheckBox Margin="0,8,0,0" Content="保留原宏名称" IsChecked="{Binding PreserveMacroName, Mode=TwoWay}" Style="{StaticResource SwitchCheckBoxStyle}" />
+                            <TextBlock Margin="0,14,0,0" Style="{StaticResource CaptionStyle}" Text="安全写入、外部文件覆盖确认和阻断错误检查不会被关闭。" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <ScrollViewer x:Name="WorkspaceSettingsPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel MaxWidth="760" HorizontalAlignment="Left">
+                            <TextBlock FontSize="18" FontWeight="SemiBold" Text="工作区" />
+                            <TextBlock Margin="0,5,0,20" Style="{StaticResource CaptionStyle}" Text="控制启动恢复、关闭保护和时间线信息密度。" />
+                            <CheckBox Content="启动时恢复上次工作区" IsChecked="{Binding RestorePreviousWorkspace, Mode=TwoWay}"
+                                      Checked="RestoreWorkspaceSetting_Changed" Unchecked="RestoreWorkspaceSetting_Changed"
+                                      Style="{StaticResource SwitchCheckBoxStyle}" />
+                            <CheckBox Margin="0,8,0,0" Content="关闭前检查未保存修改" IsChecked="{Binding CheckUnsavedBeforeClose, Mode=TwoWay}" Style="{StaticResource SwitchCheckBoxStyle}" />
+                            <Separator Margin="0,20" />
+                            <TextBlock FontWeight="SemiBold" Text="时间线行密度" />
+                            <ComboBox Width="260" Margin="0,8,0,16" HorizontalAlignment="Left"
+                                      ItemsSource="{Binding TimelineDensityOptions}" DisplayMemberPath="DisplayName" SelectedValuePath="Key"
+                                      SelectionChanged="TimelineDensity_SelectionChanged"
+                                      SelectedValue="{Binding TimelineDensity, Mode=TwoWay}" />
+                            <TextBlock FontWeight="SemiBold" Text="状态反馈持续时间" />
+                            <ComboBox Width="260" Margin="0,8,0,0" HorizontalAlignment="Left"
+                                      ItemsSource="{Binding FeedbackDurationOptions}" DisplayMemberPath="DisplayName" SelectedValuePath="Key"
+                                      SelectedValue="{Binding FeedbackDurationKey, Mode=TwoWay}" />
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <ScrollViewer x:Name="AboutSettingsPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel MaxWidth="760" HorizontalAlignment="Left">
+                            <StackPanel Orientation="Horizontal">
+                                <Image x:Name="BrandSettingsLogo" Width="46" Height="46" Margin="0,0,14,0"
+                                       IsHitTestVisible="False" AutomationProperties.Name="" Source="{DynamicResource BrandLogoImage}" />
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock FontFamily="{DynamicResource DisplayFontFamily}" FontSize="18" FontWeight="SemiBold" Text="XMACRO BRIDGE" />
+                                    <TextBlock Margin="0,3,0,0" Style="{StaticResource CaptionStyle}"
+                                               Text="{Binding ApplicationVersion, RelativeSource={RelativeSource AncestorType=Window}, StringFormat=版本 {0}}" />
+                                </StackPanel>
+                            </StackPanel>
+                            <TextBlock Margin="0,20,0,0" Foreground="{DynamicResource RazerGreenBrush}" Text="个人本地工具，非 Razer 官方产品" />
+                            <TextBlock Margin="0,6,0,0" Style="{StaticResource CaptionStyle}" Text="所有宏解析、验证、转换和宏库管理均在本机离线完成。" TextWrapping="Wrap" />
+                            <Separator Margin="0,20" />
+                            <TextBlock FontWeight="SemiBold" Text="设置文件位置" />
+                            <TextBox Margin="0,8,0,0" Style="{StaticResource ReadOnlyFieldStyle}" Text="{Binding SettingsPath, Mode=OneWay}" />
+                            <TextBlock Margin="0,16,0,0" FontWeight="SemiBold" Text="支持格式" />
+                            <TextBlock Margin="0,6,0,0" Style="{StaticResource CaptionStyle}" Text="雷云 4 宏 XML、Synapse4 宏容器、X-Mouse 宏文本与设置 XML。" TextWrapping="Wrap" />
+                            <WrapPanel Margin="0,16,0,0">
+                                <Button Click="OpenSettingsLocation_Click" Content="打开设置位置" Style="{StaticResource SecondaryButtonStyle}" />
+                                <Button Margin="8,0,0,0" Click="OpenThirdPartyNotices_Click" Content="第三方许可说明" Style="{StaticResource SecondaryButtonStyle}" />
+                            </WrapPanel>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
         </Grid>
         </ScrollViewer>
 

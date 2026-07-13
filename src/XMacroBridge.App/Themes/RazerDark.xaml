@@ -1,65 +1,84 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <FontFamily x:Key="ApplicationFontFamily">Microsoft YaHei UI, PingFang SC, Noto Sans SC, Segoe UI</FontFamily>
-    <FontFamily x:Key="MonospaceFontFamily">Cascadia Mono, Consolas, Microsoft YaHei UI</FontFamily>
+    <FontFamily x:Key="DisplayFontFamily">RazerF5, Roboto, Helvetica Neue, Arial, Noto Sans SC</FontFamily>
+    <FontFamily x:Key="ApplicationFontFamily">Roboto, Helvetica Neue, Arial, Noto Sans SC, Microsoft YaHei UI</FontFamily>
+    <FontFamily x:Key="MonospaceFontFamily">Cascadia Mono, Consolas, monospace</FontFamily>
 
-    <SolidColorBrush x:Key="WindowBackgroundBrush" Color="#202020" />
-    <SolidColorBrush x:Key="NavigationBrush" Color="#090909" />
-    <SolidColorBrush x:Key="ToolbarBrush" Color="#202020" />
-    <SolidColorBrush x:Key="PanelBrush" Color="#101010" />
-    <SolidColorBrush x:Key="ControlBrush" Color="#242424" />
-    <SolidColorBrush x:Key="HoverBrush" Color="#181818" />
-    <SolidColorBrush x:Key="RowHoverBrush" Color="#161616" />
-    <SolidColorBrush x:Key="BorderBrush" Color="#303030" />
-    <SolidColorBrush x:Key="StrongBorderBrush" Color="#555555" />
-    <SolidColorBrush x:Key="TextPrimaryBrush" Color="#F1F1F1" />
-    <SolidColorBrush x:Key="TextSecondaryBrush" Color="#A7A7A7" />
-    <SolidColorBrush x:Key="TextDisabledBrush" Color="#626262" />
-    <SolidColorBrush x:Key="RazerGreenBrush" Color="#36E322" />
-    <SolidColorBrush x:Key="RazerGreenHoverBrush" Color="#49F037" />
-    <SolidColorBrush x:Key="RazerGreenPressedBrush" Color="#28C818" />
-    <SolidColorBrush x:Key="RazerGreenTextBrush" Color="#081008" />
-    <SolidColorBrush x:Key="SelectedGreenBrush" Color="#185C16" />
-    <SolidColorBrush x:Key="SelectedGreenMutedBrush" Color="#40185C16" />
-    <SolidColorBrush x:Key="ErrorBrush" Color="#EC3039" />
-    <SolidColorBrush x:Key="WarningBrush" Color="#FF9800" />
-    <SolidColorBrush x:Key="InfoBrush" Color="#00BFEA" />
-    <SolidColorBrush x:Key="SuccessBrush" Color="#36E322" />
-    <SolidColorBrush x:Key="MouseEventBrush" Color="#FF9800" />
-    <SolidColorBrush x:Key="DelayEventBrush" Color="#858585" />
-    <SolidColorBrush x:Key="ScrollThumbBrush" Color="#666666" />
-    <SolidColorBrush x:Key="ScrollThumbHoverBrush" Color="#7A7A7A" />
-    <SolidColorBrush x:Key="ToolbarSectionBrush" Color="#151515" />
-    <SolidColorBrush x:Key="SubtlePanelBrush" Color="#131313" />
-    <SolidColorBrush x:Key="PressedSurfaceBrush" Color="#111111" />
-    <SolidColorBrush x:Key="DisabledSurfaceBrush" Color="#1C1C1C" />
-    <SolidColorBrush x:Key="DiagnosticItemBrush" Color="#151515" />
-    <SolidColorBrush x:Key="DelayTextBrush" Color="#B9D7F1" />
-    <SolidColorBrush x:Key="DangerHoverSurfaceBrush" Color="#2A1113" />
-    <SolidColorBrush x:Key="DangerPressedSurfaceBrush" Color="#3A1114" />
-    <SolidColorBrush x:Key="WindowCloseHoverBrush" Color="#C42B1C" />
-    <SolidColorBrush x:Key="WindowClosePressedBrush" Color="#9B1C12" />
+    <!-- Immutable product palette from the implementation guide. -->
+    <SolidColorBrush x:Key="BackgroundBrush" Color="#161616" />
+    <SolidColorBrush x:Key="SurfaceBrush" Color="#222222" />
+    <SolidColorBrush x:Key="ForegroundBrush" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="MutedBrush" Color="#999999" />
+    <SolidColorBrush x:Key="RegisteredBorderBrush" Color="#333333" />
+    <SolidColorBrush x:Key="AccentBrush" Color="#44D62C" />
+    <SolidColorBrush x:Key="AccentHoverBrush" Color="#44F62C" />
+    <SolidColorBrush x:Key="MouseEventBrush" Color="#FF8A00" />
 
-    <!-- Compatibility aliases retained for existing views and smoke tests. -->
-    <SolidColorBrush x:Key="PageBrush" Color="#202020" />
-    <SolidColorBrush x:Key="CardBrush" Color="#101010" />
-    <SolidColorBrush x:Key="DividerBrush" Color="#303030" />
-    <SolidColorBrush x:Key="AccentBrush" Color="#36E322" />
-    <SolidColorBrush x:Key="AccentHoverBrush" Color="#49F037" />
-    <SolidColorBrush x:Key="AccentFillBrush" Color="#36E322" />
-    <SolidColorBrush x:Key="AccentFillTextBrush" Color="#081008" />
-    <SolidColorBrush x:Key="AccentFillHoverBrush" Color="#49F037" />
-    <SolidColorBrush x:Key="AccentFillPressedBrush" Color="#28C818" />
-    <SolidColorBrush x:Key="FocusRingBrush" Color="#36E322" />
-    <SolidColorBrush x:Key="PrimaryFocusRingBrush" Color="#081008" />
-    <SolidColorBrush x:Key="SelectionBrush" Color="#185C16" />
-    <SolidColorBrush x:Key="SelectionTextBrush" Color="#F1F1F1" />
-    <SolidColorBrush x:Key="SurfaceSecondaryBrush" Color="#242424" />
-    <SolidColorBrush x:Key="CardBorderBrush" Color="#303030" />
-    <SolidColorBrush x:Key="AlternateRowBrush" Color="#101010" />
-    <SolidColorBrush x:Key="DiagnosticSurfaceBrush" Color="#101010" />
-    <SolidColorBrush x:Key="SuccessSurfaceBrush" Color="#181818" />
-    <SolidColorBrush x:Key="SuccessSurfaceTextBrush" Color="#36E322" />
+    <!-- Semantic aliases used by existing views. All aliases resolve to registered colors. -->
+    <SolidColorBrush x:Key="WindowBackgroundBrush" Color="#161616" />
+    <SolidColorBrush x:Key="NavigationBrush" Color="#161616" />
+    <SolidColorBrush x:Key="ToolbarBrush" Color="#222222" />
+    <SolidColorBrush x:Key="PanelBrush" Color="#161616" />
+    <SolidColorBrush x:Key="ControlBrush" Color="#222222" />
+    <SolidColorBrush x:Key="HoverBrush" Color="#222222" />
+    <SolidColorBrush x:Key="RowHoverBrush" Color="#222222" />
+    <SolidColorBrush x:Key="BorderBrush" Color="#333333" />
+    <SolidColorBrush x:Key="StrongBorderBrush" Color="#999999" />
+    <SolidColorBrush x:Key="TextPrimaryBrush" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="TextSecondaryBrush" Color="#999999" />
+    <SolidColorBrush x:Key="TextDisabledBrush" Color="#999999" />
+    <SolidColorBrush x:Key="RazerGreenBrush" Color="#44D62C" />
+    <SolidColorBrush x:Key="RazerGreenHoverBrush" Color="#44F62C" />
+    <SolidColorBrush x:Key="RazerGreenPressedBrush" Color="#44D62C" />
+    <SolidColorBrush x:Key="RazerGreenTextBrush" Color="#161616" />
+    <SolidColorBrush x:Key="SelectedGreenBrush" Color="#44D62C" />
+    <SolidColorBrush x:Key="SelectedGreenMutedBrush" Color="#222222" />
+    <SolidColorBrush x:Key="ErrorBrush" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="WarningBrush" Color="#999999" />
+    <SolidColorBrush x:Key="InfoBrush" Color="#999999" />
+    <SolidColorBrush x:Key="SuccessBrush" Color="#44D62C" />
+    <SolidColorBrush x:Key="DelayEventBrush" Color="#999999" />
+    <SolidColorBrush x:Key="ScrollThumbBrush" Color="#999999" />
+    <SolidColorBrush x:Key="ScrollThumbHoverBrush" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="ToolbarSectionBrush" Color="#222222" />
+    <SolidColorBrush x:Key="SubtlePanelBrush" Color="#161616" />
+    <SolidColorBrush x:Key="PressedSurfaceBrush" Color="#333333" />
+    <SolidColorBrush x:Key="DisabledSurfaceBrush" Color="#222222" />
+    <SolidColorBrush x:Key="DiagnosticItemBrush" Color="#161616" />
+    <SolidColorBrush x:Key="DelayTextBrush" Color="#999999" />
+    <SolidColorBrush x:Key="DangerHoverSurfaceBrush" Color="#222222" />
+    <SolidColorBrush x:Key="DangerPressedSurfaceBrush" Color="#333333" />
+    <SolidColorBrush x:Key="WindowCloseHoverBrush" Color="#222222" />
+    <SolidColorBrush x:Key="WindowClosePressedBrush" Color="#333333" />
 
-    <Geometry x:Key="BrandIconGeometry">M12,1 C17.8,1 22.5,5.7 22.5,11.5 C22.5,17.3 17.8,22 12,22 C6.2,22 1.5,17.3 1.5,11.5 C1.5,5.7 6.2,1 12,1 M7,7 L12,5 L17,7 L15.5,12.5 L12,18 L8.5,12.5 Z</Geometry>
+    <!-- Compatibility aliases retained for existing views and tests. -->
+    <SolidColorBrush x:Key="PageBrush" Color="#161616" />
+    <SolidColorBrush x:Key="CardBrush" Color="#161616" />
+    <SolidColorBrush x:Key="DividerBrush" Color="#333333" />
+    <SolidColorBrush x:Key="AccentFillBrush" Color="#161616" />
+    <SolidColorBrush x:Key="AccentFillTextBrush" Color="#44D62C" />
+    <SolidColorBrush x:Key="AccentFillHoverBrush" Color="#222222" />
+    <SolidColorBrush x:Key="AccentFillPressedBrush" Color="#333333" />
+    <SolidColorBrush x:Key="FocusRingBrush" Color="#44D62C" />
+    <SolidColorBrush x:Key="PrimaryFocusRingBrush" Color="#44D62C" />
+    <SolidColorBrush x:Key="SelectionBrush" Color="#222222" />
+    <SolidColorBrush x:Key="SelectionTextBrush" Color="#44D62C" />
+    <SolidColorBrush x:Key="SurfaceSecondaryBrush" Color="#222222" />
+    <SolidColorBrush x:Key="CardBorderBrush" Color="#333333" />
+    <SolidColorBrush x:Key="AlternateRowBrush" Color="#161616" />
+    <SolidColorBrush x:Key="DiagnosticSurfaceBrush" Color="#161616" />
+    <SolidColorBrush x:Key="SuccessSurfaceBrush" Color="#161616" />
+    <SolidColorBrush x:Key="SuccessSurfaceTextBrush" Color="#44D62C" />
+
+    <DrawingImage x:Key="BrandLogoImage">
+        <DrawingImage.Drawing>
+            <DrawingGroup>
+                <GeometryDrawing Brush="{DynamicResource RazerGreenBrush}">
+                    <GeometryDrawing.Geometry><EllipseGeometry Center="32,32" RadiusX="30" RadiusY="30" /></GeometryDrawing.Geometry>
+                </GeometryDrawing>
+                <GeometryDrawing Brush="{DynamicResource BackgroundBrush}"
+                                 Geometry="M32,11 C21.5,11 14,19 14,30 V35 C14,46 21.5,53 32,53 C42.5,53 50,46 50,35 V30 C50,19 42.5,11 32,11 Z M29,16.5 V29.5 H19 V28.5 C19,22.4 22.8,17.9 29,16.5 Z M35,16.5 C41.2,17.9 45,22.4 45,28.5 V29.5 H35 V16.5 Z" />
+            </DrawingGroup>
+        </DrawingImage.Drawing>
+    </DrawingImage>
 </ResourceDictionary>

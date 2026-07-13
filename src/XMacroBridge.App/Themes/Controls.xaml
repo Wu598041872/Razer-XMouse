@@ -19,7 +19,7 @@
 
     <Style x:Key="CardStyle" TargetType="Border">
         <Setter Property="Background" Value="{DynamicResource PanelBrush}" />
-        <Setter Property="CornerRadius" Value="4" />
+        <Setter Property="CornerRadius" Value="3" />
         <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
     </Style>
@@ -36,8 +36,8 @@
     </Style>
 
     <Style x:Key="BaseButtonStyle" TargetType="Button">
-        <Setter Property="Height" Value="32" />
-        <Setter Property="MinHeight" Value="32" />
+        <Setter Property="Height" Value="36" />
+        <Setter Property="MinHeight" Value="34" />
         <Setter Property="Padding" Value="12,5" />
         <Setter Property="FontSize" Value="13" />
         <Setter Property="FontWeight" Value="SemiBold" />
@@ -54,32 +54,37 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
-                    <Border x:Name="ButtonBorder"
-                            Padding="{TemplateBinding Padding}"
-                            Background="{TemplateBinding Background}"
-                            BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="{TemplateBinding BorderThickness}"
-                            CornerRadius="3">
-                        <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
-                                          TextElement.Foreground="{TemplateBinding Foreground}"
-                                          RecognizesAccessKey="True">
-                            <ContentPresenter.Resources>
-                                <Style TargetType="TextBlock">
-                                    <Setter Property="FontFamily" Value="{DynamicResource ApplicationFontFamily}" />
-                                    <Setter Property="Foreground"
-                                            Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
-                                </Style>
-                            </ContentPresenter.Resources>
-                        </ContentPresenter>
-                    </Border>
+                    <Grid>
+                        <Border x:Name="ButtonBorder"
+                                Padding="{TemplateBinding Padding}"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="3">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                              TextElement.Foreground="{TemplateBinding Foreground}"
+                                              RecognizesAccessKey="True">
+                                <ContentPresenter.Resources>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="FontFamily" Value="{DynamicResource ApplicationFontFamily}" />
+                                        <Setter Property="Foreground"
+                                                Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                                    </Style>
+                                </ContentPresenter.Resources>
+                            </ContentPresenter>
+                        </Border>
+                        <Border x:Name="FocusRing" Margin="-2" BorderBrush="{DynamicResource FocusRingBrush}"
+                                BorderThickness="2" CornerRadius="3" IsHitTestVisible="False" Visibility="Collapsed" />
+                    </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="{DynamicResource RazerGreenBrush}" />
                         </Trigger>
                         <Trigger Property="IsKeyboardFocused" Value="True">
-                            <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="{Binding RelativeSource={RelativeSource TemplatedParent}, Path=(accessibility:FocusVisualAssist.FocusRingBrush)}" />
-                            <Setter TargetName="ButtonBorder" Property="BorderThickness" Value="2" />
+                            <Setter Property="BorderBrush" Value="{DynamicResource FocusRingBrush}" />
+                            <Setter TargetName="FocusRing" Property="BorderBrush" Value="{Binding RelativeSource={RelativeSource TemplatedParent}, Path=(accessibility:FocusVisualAssist.FocusRingBrush)}" />
+                            <Setter TargetName="FocusRing" Property="Visibility" Value="Visible" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter TargetName="ButtonBorder" Property="Background" Value="{DynamicResource DisabledSurfaceBrush}" />
@@ -94,20 +99,20 @@
     </Style>
 
     <Style x:Key="PrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource BaseButtonStyle}">
-        <Setter Property="Background" Value="{DynamicResource RazerGreenBrush}" />
-        <Setter Property="Foreground" Value="{DynamicResource RazerGreenTextBrush}" />
+        <Setter Property="Background" Value="{DynamicResource ControlBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource RazerGreenBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource RazerGreenBrush}" />
         <Setter Property="accessibility:FocusVisualAssist.FocusRingBrush" Value="{DynamicResource PrimaryFocusRingBrush}" />
         <Style.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
-                <Setter Property="Background" Value="{DynamicResource RazerGreenHoverBrush}" />
+                <Setter Property="Background" Value="{DynamicResource HoverBrush}" />
                 <Setter Property="BorderBrush" Value="{DynamicResource RazerGreenHoverBrush}" />
-                <Setter Property="Foreground" Value="{DynamicResource RazerGreenTextBrush}" />
+                <Setter Property="Foreground" Value="{DynamicResource RazerGreenHoverBrush}" />
             </Trigger>
             <Trigger Property="IsPressed" Value="True">
-                <Setter Property="Background" Value="{DynamicResource RazerGreenPressedBrush}" />
+                <Setter Property="Background" Value="{DynamicResource PressedSurfaceBrush}" />
                 <Setter Property="BorderBrush" Value="{DynamicResource RazerGreenPressedBrush}" />
-                <Setter Property="Foreground" Value="{DynamicResource RazerGreenTextBrush}" />
+                <Setter Property="Foreground" Value="{DynamicResource RazerGreenBrush}" />
             </Trigger>
         </Style.Triggers>
     </Style>
@@ -128,32 +133,32 @@
     <Style x:Key="DangerButtonStyle" TargetType="Button" BasedOn="{StaticResource SecondaryButtonStyle}">
         <Style.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
-                <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
-                <Setter Property="Background" Value="{DynamicResource DangerHoverSurfaceBrush}" />
-                <Setter Property="BorderBrush" Value="{DynamicResource ErrorBrush}" />
+                <Setter Property="Foreground" Value="{DynamicResource RazerGreenBrush}" />
+                <Setter Property="Background" Value="{DynamicResource HoverBrush}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource RazerGreenBrush}" />
             </Trigger>
             <Trigger Property="IsPressed" Value="True">
-                <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
-                <Setter Property="Background" Value="{DynamicResource DangerPressedSurfaceBrush}" />
-                <Setter Property="BorderBrush" Value="{DynamicResource ErrorBrush}" />
+                <Setter Property="Foreground" Value="{DynamicResource RazerGreenHoverBrush}" />
+                <Setter Property="Background" Value="{DynamicResource PressedSurfaceBrush}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource RazerGreenHoverBrush}" />
             </Trigger>
         </Style.Triggers>
     </Style>
 
     <Style x:Key="NavButtonStyle" TargetType="Button">
-        <Setter Property="Height" Value="35" />
-        <Setter Property="MinHeight" Value="35" />
+        <Setter Property="Height" Value="44" />
+        <Setter Property="MinHeight" Value="44" />
         <Setter Property="MinWidth" Value="76" />
-        <Setter Property="Margin" Value="4,5,0,0" />
+        <Setter Property="Margin" Value="4,0,0,0" />
         <Setter Property="Padding" Value="14,0" />
         <Setter Property="FontSize" Value="12" />
         <Setter Property="FontWeight" Value="Normal" />
         <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderBrush" Value="Transparent" />
-        <Setter Property="BorderThickness" Value="1,1,1,0" />
+        <Setter Property="BorderThickness" Value="0,0,0,2" />
         <Setter Property="Cursor" Value="Hand" />
-        <Setter Property="VerticalAlignment" Value="Top" />
+        <Setter Property="VerticalAlignment" Value="Stretch" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="UseLayoutRounding" Value="True" />
@@ -167,7 +172,7 @@
                             Background="{TemplateBinding Background}"
                             BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="{TemplateBinding BorderThickness}"
-                            CornerRadius="3,3,0,0"
+                            CornerRadius="0"
                             SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}">
                         <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                                           VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
@@ -180,7 +185,6 @@
             <Trigger Property="IsMouseOver" Value="True">
                 <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
                 <Setter Property="Background" Value="{DynamicResource ToolbarSectionBrush}" />
-                <Setter Property="BorderBrush" Value="{DynamicResource StrongBorderBrush}" />
             </Trigger>
             <Trigger Property="IsPressed" Value="True">
                 <Setter Property="Background" Value="{DynamicResource PanelBrush}" />
@@ -192,7 +196,7 @@
             </Trigger>
             <Trigger Property="Tag" Value="Active">
                 <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
-                <Setter Property="Background" Value="{DynamicResource PanelBrush}" />
+                <Setter Property="Background" Value="Transparent" />
                 <Setter Property="BorderBrush" Value="{DynamicResource RazerGreenBrush}" />
             </Trigger>
         </Style.Triggers>
@@ -201,7 +205,7 @@
     <Style TargetType="TextBox">
         <Setter Property="ToolTipService.InitialShowDelay" Value="500" />
         <Setter Property="ToolTipService.ShowDuration" Value="12000" />
-        <Setter Property="Height" Value="32" />
+        <Setter Property="Height" Value="36" />
         <Setter Property="Padding" Value="9,5" />
         <Setter Property="Background" Value="{DynamicResource ControlBrush}" />
         <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
@@ -362,7 +366,7 @@
     <Style TargetType="ComboBox">
         <Setter Property="ToolTipService.InitialShowDelay" Value="500" />
         <Setter Property="ToolTipService.ShowDuration" Value="12000" />
-        <Setter Property="Height" Value="32" />
+        <Setter Property="Height" Value="36" />
         <Setter Property="MinWidth" Value="100" />
         <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
         <Setter Property="Background" Value="{DynamicResource ControlBrush}" />
@@ -464,6 +468,47 @@
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter Property="Foreground" Value="{DynamicResource TextDisabledBrush}" />
                             <Setter TargetName="CheckBorder" Property="Opacity" Value="0.5" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="SwitchCheckBoxStyle" TargetType="CheckBox">
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="CheckBox">
+                    <Grid MinHeight="36">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="52" /></Grid.ColumnDefinitions>
+                        <ContentPresenter VerticalAlignment="Center" />
+                        <Border x:Name="SwitchTrack" Grid.Column="1" Width="44" Height="24"
+                                HorizontalAlignment="Right" VerticalAlignment="Center"
+                                Background="{DynamicResource ControlBrush}" BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="1" CornerRadius="3">
+                            <Border x:Name="SwitchThumb" Width="18" Height="18" Margin="2"
+                                    HorizontalAlignment="Left" VerticalAlignment="Center"
+                                    Background="{DynamicResource MutedBrush}" CornerRadius="2" />
+                        </Border>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="SwitchTrack" Property="BorderBrush" Value="{DynamicResource RazerGreenBrush}" />
+                            <Setter TargetName="SwitchThumb" Property="HorizontalAlignment" Value="Right" />
+                            <Setter TargetName="SwitchThumb" Property="Background" Value="{DynamicResource RazerGreenBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="SwitchTrack" Property="BorderBrush" Value="{DynamicResource StrongBorderBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="SwitchTrack" Property="BorderBrush" Value="{DynamicResource RazerGreenBrush}" />
+                            <Setter TargetName="SwitchTrack" Property="BorderThickness" Value="2" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.5" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>

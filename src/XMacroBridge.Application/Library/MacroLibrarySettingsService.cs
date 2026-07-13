@@ -40,6 +40,8 @@ public sealed class MacroLibrarySettingsService
         }
     }
 
+    public string SettingsPath => settingsPath;
+
     private static bool IsTestMode =>
         string.Equals(Environment.GetEnvironmentVariable(TestModeEnvironmentVariable), "1", StringComparison.Ordinal);
 
@@ -99,7 +101,7 @@ public sealed class MacroLibrarySettingsService
             {
                 await JsonSerializer.SerializeAsync(
                     stream,
-                    new MacroLibraryAppSettings(fullPath),
+                    settings with { LibraryRootPath = fullPath },
                     cancellationToken: cancellationToken).ConfigureAwait(false);
                 await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
             }

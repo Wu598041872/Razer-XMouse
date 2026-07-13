@@ -8,6 +8,7 @@ using XMacroBridge.Core.Diagnostics;
 using XMacroBridge.Core.Models;
 using XMacroBridge.Formats.Razer;
 using XMacroBridge.Formats.Xmbc;
+using XMacroBridge.Presentation.Library;
 using XMacroBridge.Presentation.Workspace;
 using System.Diagnostics;
 using System.Security.Cryptography;
@@ -80,6 +81,7 @@ var tests = new (string Name, Action Run)[]
     ("Application import service preserves BOM-encoded inputs", ApplicationImportServicePreservesBomEncodedInputs),
     ("Application import service diagnoses unknown XML", ApplicationImportServiceDiagnosesUnknownXml),
     ("Macro library stores groups metadata trash and migration safely", MacroLibraryStoresGroupsMetadataTrashAndMigrationSafely),
+    ("Macro library classifies formats counts events and previews all content", MacroLibraryClassifiesCountsAndPreviewsContent),
     ("Cancelled import releases input handle and supports retry", CancelledImportReleasesInputHandleAndSupportsRetry),
     ("Safe export writes atomically and protects source", SafeExportWritesAtomicallyAndProtectsSource),
     ("Failed safe export cleans temporary files", FailedSafeExportCleansTemporaryFiles),
@@ -2644,6 +2646,52 @@ static void MacroLibraryStoresGroupsMetadataTrashAndMigrationSafely()
         AssertThrows<ArgumentException>(
             () => service.CreateGroupAsync(root, "..").GetAwaiter().GetResult(),
             "Macro library accepted a traversal group name.");
+    }
+    finally
+    {
+        Directory.Delete(parent, true);
+    }
+}
+
+static void MacroLibraryClassifiesCountsAndPreviewsContent()
+{
+    var parent = CreateTemporaryDirectory();
+    var root = Path.Combine(parent, "library");
+    var settingsPath = Path.Combine(parent, "settings.json");
+    Directory.CreateDirectory(root);
+    try
+    {
+        File.WriteAllText(Path.Combine(root, "xmouse.txt"), "e{WAITMS:30}{LMB}", new UTF8Encoding(false));
+        File.Copy(Path.Combine(AppContext.BaseDirectory, "Fixtures", "basic-key-delay.xml"), Path.Combine(root, "razer.xml"));
+
+        using var viewModel = new MacroLibraryViewModel(
+            new MacroLibraryService(),
+            new MacroLibrarySettingsService(settingsPath));
+        viewModel.SetRootAsync(root).GetAwaiter().GetResult();
+
+        Assert(viewModel.VisibleItems.Count == 2, "Unified macro library did not expose both formats.");
+        Assert(viewModel.VisibleItems.All(item => item.EventCount is > 0), "Macro library did not parse real event counts.");
+        Assert(viewModel.VisibleItems.Any(item => item.Kind == MacroLibraryItemKind.XMouseText) &&
+               viewModel.VisibleItems.Any(item => item.Kind == MacroLibraryItemKind.RazerXml),
+            "Macro library format classification is incomplete.");
+
+        viewModel.SelectedFormat = "xmouse";
+        Assert(viewModel.VisibleItems.Count == 1 && viewModel.VisibleItems[0].Kind == MacroLibraryItemKind.XMouseText,
+            "XMouse format category did not filter the unified list.");
+        viewModel.SelectedFormat = "razer";
+        Assert(viewModel.VisibleItems.Count == 1 && viewModel.VisibleItems[0].Kind == MacroLibraryItemKind.RazerXml,
+            "Razer format category did not filter the unified list.");
+
+        var razer = viewModel.VisibleItems[0];
+        viewModel.LoadPreviewAsync(razer).GetAwaiter().GetResult();
+        Assert(viewModel.PreviewContentText.Contains("<Macro", StringComparison.Ordinal),
+            "Razer XML raw content preview is unavailable.");
+        Assert(!viewModel.PreviewText.Contains("格式与操作不匹配", StringComparison.Ordinal),
+            "Razer preview incorrectly used the XMouse-only text reader.");
+
+        var copied = viewModel.CopyItemAsync(razer).GetAwaiter().GetResult();
+        Assert(copied.Succeeded && Directory.EnumerateFiles(root, "razer - 副本*.xml").Any(),
+            "Unified macro copy did not create a real library file.");
     }
     finally
     {

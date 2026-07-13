@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using XMacroBridge.Core.Text;
 
 namespace XMacroBridge.Application.Library;
 
@@ -283,6 +284,36 @@ public sealed class MacroLibraryService
         return new MacroLibraryOperationResult(true, ToRelative(root, payload));
     }
 
+    public async Task<MacroLibraryOperationResult> CopyItemAsync(
+        string rootPath,
+        string relativePath,
+        CancellationToken cancellationToken = default)
+    {
+        var root = NormalizeRoot(rootPath);
+        var source = ResolveManagedItemPath(root, relativePath);
+        var relativeDirectory = Path.GetDirectoryName(NormalizeRelative(relativePath)) ?? string.Empty;
+        var groupName = relativeDirectory.Contains('/') ? string.Empty : relativeDirectory;
+        var kind = GetKind(Path.GetExtension(source));
+        var destination = GetUniqueItemPath(root, groupName, Path.GetFileNameWithoutExtension(source) + " - 副本", Path.GetExtension(source));
+        await CopyAtomicAsync(source, destination, cancellationToken).ConfigureAwait(false);
+        return new MacroLibraryOperationResult(true, ToRelative(root, destination), $"已复制“{Path.GetFileNameWithoutExtension(source)}”");
+    }
+
+    public async Task<MacroLibraryOperationResult> DeleteItemPermanentlyAsync(
+        string rootPath,
+        string relativePath,
+        CancellationToken cancellationToken = default)
+    {
+        var root = NormalizeRoot(rootPath);
+        var source = ResolveManagedItemPath(root, relativePath);
+        cancellationToken.ThrowIfCancellationRequested();
+        File.Delete(source);
+        var metadata = await LoadMetadataAsync(root, [], cancellationToken).ConfigureAwait(false);
+        metadata.Remove(ToRelative(root, source));
+        await SaveMetadataAsync(root, metadata, cancellationToken).ConfigureAwait(false);
+        return new MacroLibraryOperationResult(true);
+    }
+
     public async Task<MacroLibraryOperationResult> RestoreAsync(
         string rootPath,
         string trashRelativePath,
@@ -405,6 +436,17 @@ public sealed class MacroLibraryService
         var root = NormalizeRoot(rootPath);
         var path = ResolveManagedItemPath(root, relativePath, MacroLibraryItemKind.XMouseText);
         return await File.ReadAllTextAsync(path, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<string> ReadContentAsync(
+        string rootPath,
+        string relativePath,
+        CancellationToken cancellationToken = default)
+    {
+        var root = NormalizeRoot(rootPath);
+        var path = ResolveManagedItemPath(root, relativePath);
+        var bytes = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
+        return TextEncodingDetector.Decode(bytes);
     }
 
     public string GetFullPath(string rootPath, string relativePath)

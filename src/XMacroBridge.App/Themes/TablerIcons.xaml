@@ -8,6 +8,8 @@
     <Geometry x:Key="KeyboardIconGeometry">M2,8 A2,2 0 0 1 4,6 H20 A2,2 0 0 1 22,8 V16 A2,2 0 0 1 20,18 H4 A2,2 0 0 1 2,16 Z M6,10 V10.01 M10,10 V10.01 M14,10 V10.01 M18,10 V10.01 M6,14 V14.01 M18,14 V14.01 M10,14 L14,14.01</Geometry>
     <Geometry x:Key="MouseIconGeometry">M6,7 A4,4 0 0 1 10,3 H14 A4,4 0 0 1 18,7 V17 A4,4 0 0 1 14,21 H10 A4,4 0 0 1 6,17 Z M12,3 V10 M6,10 H18</Geometry>
     <Geometry x:Key="ClockIconGeometry">M3,12 A9,9 0 1 0 21,12 A9,9 0 1 0 3,12 M12,7 V12 L15,15</Geometry>
+    <Geometry x:Key="ArrowBarToDownIconGeometry">M4,20 H20 M12,14 V4 M12,14 L16,10 M12,14 L8,10</Geometry>
+    <Geometry x:Key="ArrowBarUpIconGeometry">M12,4 V14 M12,4 L16,8 M12,4 L8,8 M4,20 H20</Geometry>
     <Geometry x:Key="WarningIconGeometry">M12,9 V13 M10.363,3.591 L2.257,17.125 A1.914,1.914 0 0 0 3.893,19.996 H20.107 A1.914,1.914 0 0 0 21.743,17.126 L13.637,3.59 A1.914,1.914 0 0 0 10.363,3.591 M12,16 V16.01</Geometry>
     <Geometry x:Key="InfoIconGeometry">M3,12 A9,9 0 1 0 21,12 A9,9 0 1 0 3,12 M12,9 V9.01 M11,12 H12 V16 H13</Geometry>
     <Geometry x:Key="ErrorIconGeometry">M3,12 A9,9 0 1 0 21,12 A9,9 0 1 0 3,12 M10,10 L14,14 M14,10 L10,14</Geometry>

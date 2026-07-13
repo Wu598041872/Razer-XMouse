@@ -43,4 +43,3 @@ XMacro Bridge 是一款面向 Windows 10/11 x64 的离线鼠标宏转换工具�
 ```powershell
 ./tools/release/Build-Portable.ps1
 ```
-
